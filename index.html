@@ -321,19 +321,41 @@ async function addSharedList(code){
     save();
   }catch(e){ V.msg = cloudErr(e); }
 }
-async function joinFamily(raw){
+async function joinFamily(raw, mode){
   const code = cleanCode(raw);
   if(code.length !== 8){ V.msg = 'A family code has 8 letters and numbers after HIVE. Check it and try again.'; render(); return; }
   busy();
   try{
     const doc = await cloudGet('hives', code);
     if(!doc){ V.msg = 'No family uses that code. Check it and try again.'; render(); return; }
+    const remote = doc.data ? JSON.parse(doc.data) : {};
+    const theirs = (remote.profiles || []).filter(p => !(remote.gone || {})[p.id]);
+    if(!mode && S.profiles.length && theirs.length){ V.join = {code, theirs:theirs.map(p => p.name), mine:S.profiles.map(p => p.name)}; V.msg = ''; render(); return; }
+    if(mode === 'replace'){ S.profiles = []; S.cur = null; }
     S.sync = {code};
-    if(doc.data) applyMerge(JSON.parse(doc.data));
+    applyMerge(remote);
+    if(!prof()) S.cur = S.profiles.length === 1 ? S.profiles[0].id : null;
+    V.join = null; V.view = prof() ? 'home' : 'profiles';
+    V.msg = 'This phone is now synced.';
+    saveLocal();
     await cloudPut('hives', code, {data:payload(), updated:Date.now()});
-    V.sync = 'ok'; V.msg = 'This phone is now synced.';
-  }catch(e){ V.msg = cloudErr(e); }
+    V.sync = 'ok';
+  }catch(e){ if(!S.sync) V.msg = cloudErr(e); }
   saveLocal(); render();
+}
+function vJoin(){
+  const mine = V.join.mine.map(esc).join(', '), theirs = V.join.theirs.map(esc).join(', ');
+  return header() + `<main class="wrap">
+    ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
+    <section class="card">
+      <h2>This phone already has a player</h2>
+      <p>On this phone: <b>${mine}</b>. In the family code: <b>${theirs}</b>.</p>
+      <p class="muted">To continue where the other phone left off, use the family’s players. That removes ${mine} and its progress from this phone.</p>
+      <div><button class="btn" data-act="joinmode" data-m="replace">Use the family’s players</button></div>
+      <p class="muted">If ${mine} is a different child, keep both.</p>
+      <div class="row"><button class="btn small alt" data-act="joinmode" data-m="keep">Keep ${mine} as an extra player</button><button class="btn small alt" data-act="joincancel">Cancel</button></div>
+    </section>
+  </main>`;
 }
 
 /* ---------- sessions ---------- */
@@ -630,6 +652,7 @@ function syncCard(){
     </section>`;
 }
 function render(){
+  if(V.join){ app.innerHTML = vJoin(); return; }
   const p = prof();
   if(!p) V.view = 'profiles';
   app.innerHTML = V.view==='home' ? vHome() : V.view==='play' ? vPlay() : V.view==='parent' ? vParent() : V.view==='lists' ? vLists() : vProfiles();
@@ -709,6 +732,8 @@ const ACT = {
     render();
   },
   syncjoin(){ joinFamily(document.getElementById('join-code').value); },
+  joinmode(t){ joinFamily(V.join.code, t.dataset.m); },
+  joincancel(){ V.join = null; V.msg = ''; render(); },
   async syncnow(){ await syncNow(); V.msg = V.sync==='ok' ? 'Synced.' : 'Sync did not finish. Check the internet connection and try again.'; render(); },
   syncoff(){ twoStep('syncoff', () => { delete S.sync; V.sync = ''; V.msg = 'Sync is off on this phone. Everything stays saved here.'; saveLocal(); render(); }); },
   reset(){ twoStep('reset', () => { const p = prof(); p.resetAt = p.t = Date.now(); p.words={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; V.msg='Progress erased.'; save(); render(); }); },
