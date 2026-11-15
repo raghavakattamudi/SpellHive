@@ -105,6 +105,7 @@ td input[type=text]{width:120px;padding:4px 8px;border-width:1px}
 .lrow.on{border-color:var(--ink);background:var(--paper)}
 .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.4rem;font-weight:700;letter-spacing:.06em;background:var(--paper);border:2px dashed var(--ink);border-radius:12px;padding:8px 14px;text-align:center;overflow-wrap:anywhere}
 .code.small{font-size:.95rem;padding:2px 8px;border-width:1px}
+.meter{display:inline-block;height:10px;min-width:2px;background:var(--honey);border:1px solid var(--ink);border-radius:999px;vertical-align:middle}
 @keyframes pop{from{transform:scale(.6)}to{transform:scale(1)}}
 .pop{animation:pop .25s ease-out}
 @media (prefers-reduced-motion:reduce){.pop{animation:none}.btn:active,.mode:active,.speaker:active{transform:none}}
@@ -163,6 +164,20 @@ function shuffle(a){ a = a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.
 function prof(){ return S.profiles.find(p => p.id===S.cur) || null; }
 function activeList(){ const p = prof(); return S.lists.find(l => l.id===(p&&p.listId)) || S.lists[0]; }
 function level(pts){ let n = LEVELS[0][1]; for(const [min,name] of LEVELS) if(pts>=min) n = name; return n; }
+/* ---------- practice log (per day, per device, so two phones never double count) ---------- */
+const IDLE_CAP = 90; // seconds counted per step at most, so a phone left open does not inflate practice time
+function logDay(p, d){
+  if(!S.dev) S.dev = uid();
+  const days = p.days || (p.days = {}), b = days[today()] || (days[today()] = {}), r = b[S.dev] || (b[S.dev] = {sec:0, ok:0, bad:0, n:0, ts:0});
+  r.sec += d.sec || 0; r.ok += d.ok || 0; r.bad += d.bad || 0; r.n += d.n || 0; r.ts = Date.now();
+  const keys = Object.keys(days); if(keys.length > 400) delete days[keys.sort()[0]];
+}
+function tick(){ const now = Date.now(), sec = Math.min(IDLE_CAP, Math.max(0, Math.round((now - sess.mark) / 1000))); sess.mark = now; return sec; }
+function dayTotals(p, day){ const b = (p.days || {})[day] || {}, t = {sec:0, ok:0, bad:0, n:0}; for(const k in b) for(const f in t) t[f] += b[k][f] || 0; return t; }
+function rangeTotals(p, days){ const t = {sec:0, ok:0, bad:0, n:0, active:0}; for(const day of days){ const d = dayTotals(p, day); t.sec += d.sec; t.ok += d.ok; t.bad += d.bad; t.n += d.n; if(d.sec || d.ok || d.bad) t.active++; } return t; }
+function lastDays(n){ const out = []; for(let i=0;i<n;i++) out.push(today(-i)); return out; }
+function fmtTime(sec){ if(!sec) return '0 min'; const m = Math.round(sec/60); return m < 1 ? 'under 1 min' : m < 60 ? m + ' min' : Math.floor(m/60) + ' h ' + (m%60) + ' min'; }
+function pct(ok, bad){ return ok + bad ? Math.round(ok / (ok + bad) * 100) + '%' : 'n/a'; }
 function parseWords(text){ const seen = new Set(), out = []; for(const raw of String(text).split(/[\n,;]+/)){ const w = norm(raw); if(w && !seen.has(w)){ seen.add(w); out.push(w); } } return out; }
 function buckets(){
   const p = prof(), t = today(), b = {miss:[],due:[],fresh:[],trouble:[],mastered:0,total:0};
@@ -267,6 +282,11 @@ function mergeProfile(x, y){
   const n = newer(x, y), r = Object.assign({}, n), ra = Math.max(x.resetAt||0, y.resetAt||0);
   r.resetAt = ra;
   r.badges = (x.resetAt||0) === (y.resetAt||0) ? [...new Set([...(x.badges||[]), ...(y.badges||[])])] : (n.badges||[]).slice();
+  r.days = {};
+  for(const src of [x.days || {}, y.days || {}]) for(const day in src) for(const dev in src[day]){
+    const rec = src[day][dev], slot = r.days[day] || (r.days[day] = {});
+    if((rec.ts||0) >= ra && (!slot[dev] || (rec.ts||0) > (slot[dev].ts||0))) slot[dev] = rec;
+  }
   r.words = {};
   const xw = x.words || {}, yw = y.words || {};
   for(const w of new Set([...Object.keys(xw), ...Object.keys(yw)])){
@@ -372,7 +392,7 @@ function startSession(mode){
   }
   if(!q.length){ V.msg = mode==='trouble' ? 'No trouble words right now. Nice work!' : 'This list has no words yet. Tap Change list to pick another.'; render(); return; }
   V.msg = '';
-  sess = { mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, right:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], out:false, last:'', coverFail:false, tries:{} };
+  sess = { mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, right:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], out:false, last:'', coverFail:false, tries:{}, mark:Date.now() };
   V.view = 'play';
   render();
   sayWord(sess.q[0].w);
@@ -390,12 +410,12 @@ function check(){
       if(r.bad>0) award('comeback');
       r.box = Math.min(5, r.box+1); r.due = today(GAP[r.box]); sess.right++;
     }
-    p.points++; sess.pts++; sess.run++;
+    p.points++; sess.pts++; sess.run++; logDay(p, {sec:tick(), ok:it.retry?0:1});
     if(sess.run>=10) award('run10');
     sess.stage = 'right';
     sayTok++; quiet(); tts('Correct!');
   } else {
-    r.bad++; r.box = 1; r.due = today();
+    r.bad++; r.box = 1; r.due = today(); logDay(p, {sec:tick(), bad:1});
     if(!r.miss.includes(a)){ r.miss.unshift(a); r.miss = r.miss.slice(0,5); }
     sess.run = 0; sess.last = a; sess.tries[w] = (sess.tries[w]||0) + 1;
     if(!sess.missed.includes(w)) sess.missed.push(w);
@@ -410,6 +430,7 @@ function check(){
 function checkCover(){
   const w = sess.q[sess.i].w;
   if(!norm(sess.attempt)) return;
+  logDay(prof(), {sec:tick()}); prof().t = Date.now();
   if(fold(sess.attempt) === fold(w)){ next(); }
   else { sess.last = norm(sess.attempt); sess.tries[w] = (sess.tries[w]||0) + 1; sess.attempt=''; sess.coverFail = true; sess.stage='study'; render(); }
 }
@@ -420,7 +441,7 @@ function next(){
 }
 function finish(){
   const p = prof(), t = today();
-  p.t = Date.now();
+  p.t = Date.now(); logDay(p, {sec:tick(), n:1});
   if(p.lastDay !== t){ p.streak = (p.lastDay === today(-1)) ? p.streak+1 : 1; p.lastDay = t; }
   award('first');
   if(p.streak>=3) award('day3');
@@ -569,6 +590,7 @@ function vParent(){
   return header(`<span>${p.avatar} <b>${esc(p.name)}</b></span>`) + `<main class="wrap">
     <div class="bar"><h2>Grown-ups</h2><button class="btn small alt" data-act="go" data-v="home">Back to the hive</button></div>
     ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
+    ${reportCard()}
     ${listsCard()}
     ${syncCard()}
     <section class="card">
@@ -618,6 +640,26 @@ function vLists(){
     </section>
   </main>`;
 }
+function reportCard(){
+  const week = lastDays(7), cur = prof();
+  const rows = S.profiles.map(p => {
+    const w = rangeTotals(p, week), all = rangeTotals(p, Object.keys(p.days || {}));
+    let ok = 0, bad = 0, mastered = 0;
+    for(const k in p.words){ const r = p.words[k]; ok += r.ok; bad += r.bad; if(r.box >= 4) mastered++; }
+    const last = Object.keys(p.days || {}).sort().pop() || p.lastDay || '';
+    return `<tr><td><b>${p.avatar} ${esc(p.name)}</b></td><td class="n">${fmtTime(w.sec)}</td><td class="n">${w.active} of 7</td><td class="n">${fmtTime(all.sec)}</td><td class="n">${ok}</td><td class="n">${bad}</td><td class="n">${pct(ok, bad)}</td><td class="n">${mastered}</td><td class="n">${p.streak}</td><td>${last ? esc(niceDay(last)) : 'Not yet'}</td></tr>`;
+  }).join('');
+  const days = week.map(day => ({day, t:dayTotals(cur, day)})), max = Math.max(60, ...days.map(d => d.t.sec));
+  const daily = days.map(d => `<tr><td>${esc(niceDay(d.day))}</td><td class="n">${fmtTime(d.t.sec)}</td><td><i class="meter" style="width:${Math.round(d.t.sec / max * 120)}px"></i></td><td class="n">${d.t.n}</td><td class="n">${d.t.ok}</td><td class="n">${d.t.bad}</td><td class="n">${pct(d.t.ok, d.t.bad)}</td></tr>`).join('');
+  return `<section class="card">
+      <h3>Practice report</h3>
+      <div class="scroll"><table><thead><tr><th>Player</th><th class="n">Time, last 7 days</th><th class="n">Days practiced</th><th class="n">Time, all</th><th class="n">Correct</th><th class="n">Mistakes</th><th class="n">Accuracy</th><th class="n">Mastered</th><th class="n">Streak</th><th>Last practiced</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h3>${esc(cur.name)}, last 7 days</h3>
+      <div class="scroll"><table><thead><tr><th>Day</th><th class="n">Time</th><th></th><th class="n">Sessions</th><th class="n">Correct</th><th class="n">Mistakes</th><th class="n">Accuracy</th></tr></thead><tbody>${daily}</tbody></table></div>
+      <p class="muted">Correct and mistakes count first tries only. Time counts while a session is open, up to ${IDLE_CAP} seconds per step, and was not recorded before this report was added.</p>
+    </section>`;
+}
+function niceDay(day){ const [y,m,d] = day.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'}); }
 function listsCard(){
   const rows = S.lists.map(l => {
     const share = l.code
@@ -742,7 +784,7 @@ const ACT = {
   joincancel(){ V.join = null; V.msg = ''; render(); },
   async syncnow(){ await syncNow(); V.msg = V.sync==='ok' ? 'Synced.' : 'Sync did not finish. Check the internet connection and try again.'; render(); },
   syncoff(){ twoStep('syncoff', () => { delete S.sync; V.sync = ''; V.msg = 'Sync is off on this phone. Everything stays saved here.'; saveLocal(); render(); }); },
-  reset(){ twoStep('reset', () => { const p = prof(); p.resetAt = p.t = Date.now(); p.words={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; V.msg='Progress erased.'; save(); render(); }); },
+  reset(){ twoStep('reset', () => { const p = prof(); p.resetAt = p.t = Date.now(); p.words={}; p.days={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; V.msg='Progress erased.'; save(); render(); }); },
   remove(){ twoStep('remove', () => { S.gone[S.cur] = Date.now(); S.profiles = S.profiles.filter(p => p.id!==S.cur); S.cur=null; V.view='profiles'; save(); render(); }); },
   mkbackup(){ document.getElementById('backup').value = JSON.stringify(S); },
   async copybackup(){
