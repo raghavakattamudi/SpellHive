@@ -1,0 +1,27 @@
+name: Bug report
+description: Something in SpellHive is not working
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: word
+    attributes:
+      label: Word involved (if any)
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Where
+      options: [Practice, Trouble words, Mock Bee, Grown-ups area, Player screen, Other]
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: iPad, Safari 18
+    validations:
+      required: true

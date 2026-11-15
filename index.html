@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpellHive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Layout: one centred column, a honey header band, chunky game buttons, a hex hive as the progress map. Single light theme by choice. */
+  color-scheme: light;
+  --ink:#1F2340;
+  --paper:#FFFBEA;
+  --card:#FFFFFF;
+  --honey:#FFC629;
+  --amber:#B86200;
+  --good:#1B8553;
+  --bad:#C93A30;
+  --line:#E6DCB8;
+  --muted:#5D6079;
+  --display:"Baloo 2","Trebuchet MS",system-ui,sans-serif;
+  --body:"Nunito",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.45}
+h1,h2,h3{font-family:var(--display);line-height:1.1;margin:0;text-wrap:balance}
+h1{font-size:2rem}h2{font-size:1.4rem}h3{font-size:1.1rem}
+p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.band{background:var(--honey);border-bottom:3px solid var(--ink)}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+main.wrap{display:flex;flex-direction:column;gap:16px;padding-bottom:48px}
+.brand{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between}
+.brand h1 span{font-size:1.6rem}
+.who{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.stat{background:var(--card);border:2px solid var(--ink);border-radius:999px;padding:2px 12px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.card{background:var(--card);border:2px solid var(--ink);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.center{align-items:center;text-align:center}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.center .row{justify-content:center}
+.btn{background:var(--honey);border:2px solid var(--ink);border-radius:14px;padding:10px 20px;font-family:var(--display);font-weight:800;font-size:1.15rem;cursor:pointer;box-shadow:0 4px 0 var(--ink)}
+.btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.btn.alt{background:var(--card)}
+.btn.small{font-size:.95rem;padding:6px 14px;box-shadow:0 3px 0 var(--ink)}
+.btn.danger{background:var(--card);color:var(--bad);border-color:var(--bad);box-shadow:0 3px 0 var(--bad)}
+.chip{background:var(--card);border:2px solid var(--ink);border-radius:999px;padding:6px 14px;font-weight:700;cursor:pointer}
+.chip:hover{background:var(--honey)}
+.link{background:none;border:0;padding:4px;font-weight:700;text-decoration:underline;cursor:pointer}
+.muted{color:var(--muted)}
+.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.mode{background:var(--card);border:2px solid var(--ink);border-radius:18px;padding:16px;text-align:left;cursor:pointer;box-shadow:0 4px 0 var(--ink);display:flex;flex-direction:column;gap:4px}
+.mode.main{background:var(--honey)}
+.mode:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.mode b{font-family:var(--display);font-size:1.3rem}
+.mode span{font-size:.95rem}
+.hive{display:flex;flex-wrap:wrap;gap:4px}
+.cell{width:30px;height:34px;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);background:var(--line)}
+.cell.b1{background:#F0A29B}.cell.b2{background:#FFE694}.cell.b3{background:var(--honey)}.cell.b4,.cell.b5{background:var(--amber)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.9rem}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend .cell{width:16px;height:18px}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{border:2px solid var(--ink);border-radius:12px;padding:6px 10px;font-size:.9rem;background:var(--paper)}
+.badge b{display:block;font-family:var(--display)}
+.badge.off{opacity:.45;border-style:dashed}
+.players{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.player{background:var(--card);border:2px solid var(--ink);border-radius:18px;padding:14px;cursor:pointer;box-shadow:0 4px 0 var(--ink);display:flex;flex-direction:column;align-items:center;gap:4px;font-weight:800}
+.player i{font-style:normal;font-size:2.4rem}
+.av{font-size:1.5rem;background:var(--card);border:2px solid var(--line);border-radius:12px;padding:4px 8px;cursor:pointer}
+.av.on{border-color:var(--ink);background:var(--honey)}
+input[type=text],textarea,select{border:2px solid var(--ink);border-radius:12px;padding:8px 12px;background:var(--card);max-width:100%}
+textarea{width:100%;min-height:110px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9rem}
+label{font-weight:700;display:flex;flex-direction:column;gap:4px}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:700;flex-wrap:wrap}
+.prog{height:12px;border:2px solid var(--ink);border-radius:999px;background:var(--card);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--honey)}
+.speaker{width:110px;height:110px;border-radius:50%;border:3px solid var(--ink);background:var(--honey);cursor:pointer;box-shadow:0 5px 0 var(--ink);display:grid;place-items:center}
+.speaker:active{transform:translateY(4px);box-shadow:0 1px 0 var(--ink)}
+.speaker svg{width:52px;height:52px}
+.answer{width:100%;max-width:440px;text-align:center;font-family:var(--display);font-size:1.7rem;letter-spacing:.08em;padding:10px}
+.panel{background:var(--paper);border:2px dashed var(--line);border-radius:12px;padding:10px 14px;max-width:520px}
+.tag{background:var(--ink);color:var(--paper);border-radius:999px;padding:2px 12px;font-size:.85rem;font-weight:700}
+.big{font-family:var(--display);font-size:2.2rem;font-weight:800}
+.good{color:var(--good)}.badc{color:var(--bad)}
+.spell{font-family:var(--display);font-size:1.9rem;letter-spacing:.1em;overflow-wrap:anywhere}
+.spell .x{color:var(--bad);text-decoration:line-through}
+.spell .m{background:var(--honey);border-bottom:4px solid var(--ink);border-radius:4px}
+.chunks{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.chunks span{font-family:var(--display);font-size:1.6rem;border:2px solid var(--ink);border-radius:10px;padding:2px 12px;background:var(--paper)}
+.chunks span:nth-child(even){background:var(--honey)}
+.pair{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:baseline;text-align:left}
+.pair small{font-weight:700;color:var(--muted)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td input[type=text]{width:120px;padding:4px 8px;border-width:1px}
+.pill{border-radius:999px;padding:1px 10px;font-weight:700;font-size:.8rem;border:2px solid var(--ink);white-space:nowrap}
+.pill.b1{background:#F0A29B}.pill.b2{background:#FFE694}.pill.b3{background:var(--honey)}.pill.b4,.pill.b5{background:var(--amber);color:#fff}
+.note{background:var(--card);border-left:6px solid var(--amber);padding:10px 14px;border-radius:8px}
+@keyframes pop{from{transform:scale(.6)}to{transform:scale(1)}}
+.pop{animation:pop .25s ease-out}
+@media (prefers-reduced-motion:reduce){.pop{animation:none}.btn:active,.mode:active,.speaker:active{transform:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+const KEY = 'spellhive.v1';
+const SAMPLE = ['necessary','rhythm','conscience','mischievous','pneumonia','silhouette','bureaucracy','chrysanthemum','onomatopoeia','connoisseur','fluorescent','hemorrhage','lieutenant','maneuver','questionnaire','sacrilegious','vacuum','zucchini','acquiesce','guarantee'];
+const GAP = [0,0,1,2,4,7];            // days until the next review, by box
+const BOXNAME = ['','Needs work','Learning','Learning','Mastered','Mastered'];
+const LEVELS = [[0,'Larva'],[25,'Worker Bee'],[75,'Forager'],[150,'Guard Bee'],[300,'Queen Bee']];
+const AVATARS = ['🐝','🦋','🐞','🦊','🐼','🦄','🐯','🐸'];
+const BADGES = {
+  first:['First Flight','Finished a first session'],
+  comeback:['Comeback','Spelled a past miss correctly'],
+  run10:['Hot Streak','10 correct in a row'],
+  day3:['3-Day Buzz','Practiced 3 days in a row'],
+  day7:['Week of Honey','Practiced 7 days in a row'],
+  honey10:['Honey Maker','Mastered 10 words'],
+  crown:["Queen's Crown",'Finished a Mock Bee with no misses']
+};
+const SESSION_SIZE = 10, BEE_SIZE = 25;
+const app = document.getElementById('app');
+
+/* ---------- storage ---------- */
+function load(){ try{ const r = localStorage.getItem(KEY); if(r) return JSON.parse(r); }catch(e){} return null; }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+let S = load() || { profiles:[], lists:[{id:'sample',name:'Sample words',words:SAMPLE.slice()}], fix:{}, cur:null };
+let V = { view:'profiles', avatar:AVATARS[0], msg:'', confirm:'' };
+let sess = null;
+
+/* ---------- helpers ---------- */
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s).trim().toLowerCase().replace(/\s+/g,' ');
+const uid = () => Math.random().toString(36).slice(2,9);
+function dstr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function today(off){ const d = new Date(); d.setDate(d.getDate()+(off||0)); return dstr(d); }
+function shuffle(a){ a = a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function prof(){ return S.profiles.find(p => p.id===S.cur) || null; }
+function activeList(){ const p = prof(); return S.lists.find(l => l.id===(p&&p.listId)) || S.lists[0]; }
+function level(pts){ let n = LEVELS[0][1]; for(const [min,name] of LEVELS) if(pts>=min) n = name; return n; }
+function parseWords(text){ const seen = new Set(), out = []; for(const raw of String(text).split(/[\n,;]+/)){ const w = norm(raw); if(w && !seen.has(w)){ seen.add(w); out.push(w); } } return out; }
+function buckets(){
+  const p = prof(), t = today(), b = {miss:[],due:[],fresh:[],trouble:[],mastered:0,total:0};
+  for(const w of activeList().words){
+    b.total++;
+    const r = p.words[w];
+    if(!r){ b.fresh.push(w); continue; }
+    if(r.box>=4) b.mastered++;
+    if(r.bad>0 && r.box<4) b.trouble.push(w);
+    if(r.box===1) b.miss.push(w); else if(r.due<=t) b.due.push(w);
+  }
+  return b;
+}
+function syll(w){
+  const f = S.fix[w];
+  if(f && f.chunks) return f.chunks.split(/[-·\s]+/).filter(Boolean);
+  const m = w.match(/[^aeiouy]*[aeiouy]+(?:[^aeiouy]*$|[^aeiouy](?=[^aeiouy]))?/gi);
+  return (m && m.join('')===w) ? m : [w];
+}
+function lcs(a,b){
+  const n=a.length, m=b.length, d=[];
+  for(let i=0;i<=n;i++) d.push(new Array(m+1).fill(0));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--) d[i][j] = a[i]===b[j] ? d[i+1][j+1]+1 : Math.max(d[i+1][j], d[i][j+1]);
+  const ma=new Array(n).fill(false), mb=new Array(m).fill(false);
+  let i=0, j=0;
+  while(i<n && j<m){ if(a[i]===b[j]){ ma[i]=mb[j]=true; i++; j++; } else if(d[i+1][j]>=d[i][j+1]) i++; else j++; }
+  return [ma,mb];
+}
+function mask(text,w){ return text.replace(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),'_____'); }
+
+/* ---------- speech + dictionary ---------- */
+const dict = {};
+let audioEl = null, sayTok = 0;
+const canSpeak = 'speechSynthesis' in window;
+function quiet(){ try{ if(audioEl){ audioEl.pause(); audioEl = null; } if(canSpeak) speechSynthesis.cancel(); }catch(e){} }
+function tts(text, rate){
+  if(!canSpeak) return;
+  try{ const u = new SpeechSynthesisUtterance(text); u.lang='en-US'; u.rate = rate || 0.9; speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){}
+}
+async function getInfo(w){
+  if(w in dict) return dict[w];
+  let info = null;
+  try{
+    const c = new AbortController(), tm = setTimeout(() => c.abort(), 3000);
+    const res = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(w), {signal:c.signal});
+    clearTimeout(tm);
+    if(res.ok){
+      const j = await res.json();
+      info = {def:'',ex:'',origin:'',audio:''};
+      for(const e of j){
+        if(!info.origin && e.origin) info.origin = e.origin;
+        for(const ph of e.phonetics||[]) if(!info.audio && ph.audio) info.audio = ph.audio;
+        for(const m of e.meanings||[]) for(const d of m.definitions||[]){
+          if(!info.def && d.definition) info.def = (m.partOfSpeech ? '('+m.partOfSpeech+') ' : '') + d.definition;
+          if(!info.ex && d.example) info.ex = d.example;
+        }
+      }
+    }
+  }catch(e){}
+  dict[w] = info;
+  return info;
+}
+async function sayWord(w, slow){
+  const tok = ++sayTok, f = S.fix[w];
+  quiet();
+  if(!(f && f.say)){
+    const info = await getInfo(w);
+    if(tok !== sayTok) return;
+    if(info && info.audio){
+      try{ audioEl = new Audio(info.audio); audioEl.playbackRate = slow ? 0.7 : 1; await audioEl.play(); return; }catch(e){ audioEl = null; }
+    }
+  }
+  tts((f && f.say) || w, slow ? 0.5 : 0.85);
+}
+
+/* ---------- sessions ---------- */
+function startSession(mode){
+  const b = buckets(), words = activeList().words, p = prof();
+  let q;
+  if(mode==='trouble') q = shuffle(b.trouble);
+  else if(mode==='bee') q = shuffle(words).slice(0, BEE_SIZE);
+  else {
+    q = shuffle(b.miss).concat(shuffle(b.due), b.fresh).slice(0, SESSION_SIZE);
+    if(!q.length) q = words.slice().sort((x,y) => p.words[x].box - p.words[y].box).slice(0, SESSION_SIZE);
+  }
+  if(!q.length){ V.msg = mode==='trouble' ? 'No trouble words right now. Nice work!' : 'This list has no words yet. Add some in the grown-ups area.'; render(); return; }
+  V.msg = '';
+  sess = { mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, right:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], out:false, last:'', coverFail:false };
+  V.view = 'play';
+  render();
+  sayWord(sess.q[0].w);
+}
+function award(id){ const p = prof(); if(!p.badges.includes(id)){ p.badges.push(id); if(sess) sess.newBadges.push(id); } }
+function check(){
+  const it = sess.q[sess.i], w = it.w, a = norm(sess.attempt);
+  if(!a) return;
+  const p = prof();
+  const r = p.words[w] || (p.words[w] = {box:1,due:'',att:0,ok:0,bad:0,miss:[]});
+  r.att++; r.last = today();
+  if(a === w){
+    r.ok++;
+    if(!it.retry){
+      if(r.bad>0) award('comeback');
+      r.box = Math.min(5, r.box+1); r.due = today(GAP[r.box]); sess.right++;
+    }
+    p.points++; sess.pts++; sess.run++;
+    if(sess.run>=10) award('run10');
+    sess.stage = 'right';
+    sayTok++; quiet(); tts('Correct!');
+  } else {
+    r.bad++; r.box = 1; r.due = today();
+    if(!r.miss.includes(a)){ r.miss.unshift(a); r.miss = r.miss.slice(0,5); }
+    sess.run = 0; sess.last = a;
+    if(!sess.missed.includes(w)) sess.missed.push(w);
+    if(sess.mode==='bee') sess.out = true;
+    else sess.q.splice(Math.min(sess.q.length, sess.i+3), 0, {w, retry:true});
+    sess.stage = 'study';
+    sayTok++; quiet();
+  }
+  sess.attempt = '';
+  save(); render();
+}
+function checkCover(){
+  const w = sess.q[sess.i].w;
+  if(!norm(sess.attempt)) return;
+  if(norm(sess.attempt) === w){ next(); }
+  else { sess.attempt=''; sess.coverFail = true; sess.stage='study'; render(); }
+}
+function next(){
+  sess.attempt=''; sess.panel=null; sess.coverFail=false;
+  if(sess.out || ++sess.i >= sess.q.length){ finish(); return; }
+  sess.stage='ask'; render(); sayWord(sess.q[sess.i].w);
+}
+function finish(){
+  const p = prof(), t = today();
+  if(p.lastDay !== t){ p.streak = (p.lastDay === today(-1)) ? p.streak+1 : 1; p.lastDay = t; }
+  award('first');
+  if(p.streak>=3) award('day3');
+  if(p.streak>=7) award('day7');
+  if(Object.values(p.words).filter(r => r.box>=4).length >= 10) award('honey10');
+  if(sess.mode==='bee' && !sess.out) award('crown');
+  sess.stage='done';
+  quiet(); save(); render();
+}
+
+/* ---------- views ---------- */
+function header(right){
+  return `<header class="band"><div class="wrap brand"><h1><span>🐝</span> SpellHive</h1><div class="who">${right||''}</div></div></header>`;
+}
+function vProfiles(){
+  const players = S.profiles.map(p => `<button class="player" data-act="pick" data-id="${p.id}"><i>${p.avatar}</i>${esc(p.name)}<span class="muted">${p.points} pts</span></button>`).join('');
+  return header() + `<main class="wrap">
+    ${S.profiles.length ? `<h2>Who is practicing?</h2><div class="players">${players}</div>` : `<p class="note">SpellHive reads each word aloud, checks the spelling, and brings back missed words until they stick. Add a player to start.</p>`}
+    <form class="card" id="add-player">
+      <h3>Add a player</h3>
+      <label for="new-name">Name<input type="text" id="new-name" maxlength="20" autocomplete="off"></label>
+      <div class="row" role="group" aria-label="Pick an avatar">${AVATARS.map(a => `<button type="button" class="av ${a===V.avatar?'on':''}" data-act="avatar" data-a="${a}" aria-pressed="${a===V.avatar}">${a}</button>`).join('')}</div>
+      <div><button class="btn" type="submit">Add player</button></div>
+    </form>
+  </main>`;
+}
+function vHome(){
+  const p = prof(), b = buckets(), L = activeList();
+  const cells = L.words.map(w => { const r = p.words[w]; return `<i class="cell ${r?'b'+r.box:''}"></i>`; }).join('');
+  const learning = b.total - b.mastered - b.fresh.length - b.miss.length;
+  const ready = b.miss.length + b.due.length + b.fresh.length;
+  const badges = Object.keys(BADGES).map(id => `<div class="badge ${p.badges.includes(id)?'':'off'}"><b>${esc(BADGES[id][0])}</b>${esc(BADGES[id][1])}</div>`).join('');
+  return header(`<span>${p.avatar} <b>${esc(p.name)}</b></span><span class="stat">${level(p.points)}</span><span class="stat">${p.points} pts</span><span class="stat">${p.streak}-day streak</span>`) + `<main class="wrap">
+    ${canSpeak ? '' : '<p class="note">This browser cannot read words aloud. Try Chrome, Edge or Safari.</p>'}
+    ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
+    <section class="card">
+      <div class="bar"><h2>${esc(L.name)}</h2><span><b>${b.mastered}</b> of ${b.total} words mastered</span></div>
+      <div class="hive" aria-hidden="true">${cells}</div>
+      <div class="legend">
+        <span><i class="cell"></i>New ${b.fresh.length}</span>
+        <span><i class="cell b1"></i>Needs work ${b.miss.length}</span>
+        <span><i class="cell b3"></i>Learning ${learning}</span>
+        <span><i class="cell b4"></i>Mastered ${b.mastered}</span>
+      </div>
+    </section>
+    <div class="modes">
+      <button class="mode main" data-act="start" data-mode="practice"><b>Practice</b><span>${ready ? `${Math.min(ready,SESSION_SIZE)} words ready. Missed words come first.` : 'All caught up. Play a bonus round.'}</span></button>
+      <button class="mode" data-act="start" data-mode="trouble"><b>Trouble words</b><span>${b.trouble.length} words you have missed before.</span></button>
+      <button class="mode" data-act="start" data-mode="bee"><b>Mock Bee</b><span>One try per word. A miss ends the round.</span></button>
+    </div>
+    <section class="card"><h3>Badges</h3><div class="badges">${badges}</div></section>
+    <div class="row"><button class="link" data-act="go" data-v="profiles">Switch player</button><button class="link" data-act="go" data-v="parent">Grown-ups: word lists and progress</button></div>
+  </main>`;
+}
+const SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
+function vPlay(){
+  const it = sess.q[Math.min(sess.i, sess.q.length-1)], w = it.w;
+  const names = {practice:'Practice', trouble:'Trouble words', bee:'Mock Bee'};
+  const top = sess.stage==='done' ? '' : `<div class="bar"><button class="link" data-act="quit">Quit</button><span>${names[sess.mode]} · Word ${sess.i+1} of ${sess.q.length}</span><span class="stat">${sess.pts} pts</span></div>
+    <div class="prog"><i style="width:${Math.round(sess.i/sess.q.length*100)}%"></i></div>`;
+  const inputAttrs = 'type="text" data-focus class="answer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Your spelling"';
+  let body = '';
+  if(sess.stage==='ask'){
+    body = `<section class="card center">
+      ${it.retry ? '<span class="tag">Second chance</span>' : ''}
+      <button class="speaker" data-act="say" aria-label="Hear the word">${SPK}</button>
+      <p class="muted">Tap to hear the word again</p>
+      <div class="row">
+        <button class="chip" data-act="slow">Say it slowly</button>
+        <button class="chip" data-act="info" data-k="def">Definition</button>
+        <button class="chip" data-act="info" data-k="ex">Sentence</button>
+        <button class="chip" data-act="info" data-k="origin">Origin</button>
+      </div>
+      ${sess.panel ? `<p class="panel" aria-live="polite">${esc(sess.panel)}</p>` : ''}
+      <input id="answer" ${inputAttrs} placeholder="Type the spelling" value="${esc(sess.attempt)}">
+      <button class="btn" data-act="check">Check spelling</button>
+    </section>`;
+  } else if(sess.stage==='right'){
+    body = `<section class="card center">
+      <p class="big good pop">Correct! +1 point</p>
+      <p class="spell">${esc(w)}</p>
+      <button class="btn" data-act="next" data-focus>${sess.i+1>=sess.q.length ? 'Finish' : 'Next word'}</button>
+    </section>`;
+  } else if(sess.stage==='study'){
+    const [ma,mb] = lcs(sess.last, w);
+    const you = [...sess.last].map((c,i) => `<span class="${ma[i]?'':'x'}">${esc(c)}</span>`).join('');
+    const ok = [...w].map((c,i) => `<span class="${mb[i]?'':'m'}">${esc(c)}</span>`).join('');
+    body = `<section class="card center">
+      <p class="big badc">${sess.coverFail ? 'Almost. Look once more.' : 'Not quite. Let’s learn it.'}</p>
+      <div class="pair">
+        <small>You typed</small><span class="spell">${you}</span>
+        <small>Correct</small><span class="spell">${ok}</span>
+      </div>
+      <p class="muted">Highlighted letters are the ones to remember. Read it in chunks:</p>
+      <div class="chunks">${syll(w).map(s => `<span>${esc(s)}</span>`).join('')}</div>
+      <div class="row">
+        <button class="chip" data-act="say">Hear it</button>
+        <button class="chip" data-act="slow">Hear it slowly</button>
+        <button class="chip" data-act="letters">Spell it out loud</button>
+      </div>
+      <button class="btn" data-act="cover" data-focus>Cover it and spell it</button>
+    </section>`;
+  } else if(sess.stage==='cover'){
+    body = `<section class="card center">
+      <h2>Now spell it from memory</h2>
+      <button class="chip" data-act="say">Hear it</button>
+      <input id="answer" ${inputAttrs} placeholder="Type the spelling" value="${esc(sess.attempt)}">
+      <div class="row"><button class="btn" data-act="checkcover">Check</button><button class="btn alt" data-act="peek">Peek again</button></div>
+    </section>`;
+  } else {
+    const p = prof();
+    const head = sess.mode==='bee' ? (sess.out ? `You spelled ${sess.right} in a row before a miss` : 'Champion! No misses') : 'Session complete';
+    body = `<section class="card center">
+      <p class="big pop">${head}</p>
+      <div class="row"><span class="stat">+${sess.pts} points</span><span class="stat">${sess.right} right first try</span><span class="stat">${p.streak}-day streak</span></div>
+      ${sess.missed.length ? `<p>Words coming back next time: <b>${sess.missed.map(esc).join(', ')}</b></p>` : '<p>No misses this round.</p>'}
+      ${sess.newBadges.length ? `<div class="badges">${sess.newBadges.map(id => `<div class="badge pop"><b>New badge: ${esc(BADGES[id][0])}</b>${esc(BADGES[id][1])}</div>`).join('')}</div>` : ''}
+      <div class="row"><button class="btn" data-act="go" data-v="home" data-focus>Back to the hive</button><button class="btn alt" data-act="start" data-mode="${sess.mode}">Play again</button></div>
+    </section>`;
+  }
+  return header(`<span>${prof().avatar} <b>${esc(prof().name)}</b></span>`) + `<main class="wrap">${top}${body}</main>`;
+}
+function vParent(){
+  const p = prof(), L = activeList();
+  const rows = L.words.map((w,i) => {
+    const r = p.words[w], f = S.fix[w] || {};
+    return `<tr><td><b>${esc(w)}</b></td>
+      <td>${r ? `<span class="pill b${r.box}">${BOXNAME[r.box]}</span>` : '<span class="muted">New</span>'}</td>
+      <td class="n">${r?r.ok:0}</td><td class="n">${r?r.bad:0}</td>
+      <td>${r&&r.miss.length ? esc(r.miss.join(', ')) : ''}</td>
+      <td><input type="text" id="say-${i}" data-chg="fix" data-k="say" data-w="${esc(w)}" value="${esc(f.say||'')}" aria-label="Say ${esc(w)} as"></td>
+      <td><input type="text" id="chunks-${i}" data-chg="fix" data-k="chunks" data-w="${esc(w)}" value="${esc(f.chunks||'')}" placeholder="${esc(syll(w).join('-'))}" aria-label="Chunks for ${esc(w)}"></td>
+      <td><button class="chip" data-act="test" data-w="${esc(w)}">Hear</button></td></tr>`;
+  });
+  const order = L.words.map((w,i) => i).sort((a,b) => ((p.words[L.words[b]]||{}).bad||0) - ((p.words[L.words[a]]||{}).bad||0));
+  return header(`<span>${p.avatar} <b>${esc(p.name)}</b></span>`) + `<main class="wrap">
+    <div class="bar"><h2>Grown-ups</h2><button class="btn small alt" data-act="go" data-v="home">Back to the hive</button></div>
+    ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
+    <section class="card">
+      <h3>Word list for ${esc(p.name)}</h3>
+      <div class="row">
+        <select id="list-pick" data-chg="pick" aria-label="Active word list">${S.lists.map(l => `<option value="${l.id}" ${l.id===L.id?'selected':''}>${esc(l.name)} (${l.words.length})</option>`).join('')}</select>
+        ${S.lists.length>1 ? `<button class="btn small danger" data-act="dellist">${V.confirm==='list' ? 'Tap again to delete this list' : 'Delete this list'}</button>` : ''}
+      </div>
+    </section>
+    <section class="card">
+      <h3>Add a word list</h3>
+      <label for="list-name">List name<input type="text" id="list-name" maxlength="40" placeholder="School bee, round 1"></label>
+      <label for="list-words">Words, one per line or separated by commas<textarea id="list-words" spellcheck="false"></textarea></label>
+      <div><button class="btn small" data-act="addlist">Save list</button></div>
+    </section>
+    <section class="card">
+      <h3>Progress, hardest words first</h3>
+      <p class="muted">If the voice says a word wrong, type how it sounds under “Say it as” (for example “kernel” for colonel). Chunks are separated with dashes.</p>
+      <div class="scroll"><table><thead><tr><th>Word</th><th>Status</th><th class="n">Right</th><th class="n">Wrong</th><th>Misspellings</th><th>Say it as</th><th>Chunks</th><th></th></tr></thead><tbody>${order.map(i => rows[i]).join('')}</tbody></table></div>
+    </section>
+    <section class="card">
+      <h3>Backup and move to another device</h3>
+      <p class="muted">Progress is saved in this browser only. Create a backup, then restore it on another device.</p>
+      <textarea id="backup" spellcheck="false" aria-label="Backup data"></textarea>
+      <div class="row">
+        <button class="btn small" data-act="mkbackup">Create backup</button>
+        <button class="btn small alt" data-act="copybackup">Copy</button>
+        <button class="btn small alt" data-act="dlbackup">Download file</button>
+        <button class="btn small alt" data-act="restore">Restore from text above</button>
+      </div>
+      <label for="backup-file">Or load a backup file<input type="file" id="backup-file" data-chg="file" accept=".json,application/json"></label>
+    </section>
+    <section class="card">
+      <h3>Reset</h3>
+      <div class="row">
+        <button class="btn small danger" data-act="reset">${V.confirm==='reset' ? 'Tap again to erase progress' : `Erase ${esc(p.name)}’s progress`}</button>
+        <button class="btn small danger" data-act="remove">${V.confirm==='remove' ? 'Tap again to remove player' : `Remove ${esc(p.name)}`}</button>
+      </div>
+    </section>
+  </main>`;
+}
+function render(){
+  const p = prof();
+  if(!p) V.view = 'profiles';
+  app.innerHTML = V.view==='home' ? vHome() : V.view==='play' ? vPlay() : V.view==='parent' ? vParent() : vProfiles();
+  const f = app.querySelector('[data-focus]');
+  if(f){ f.focus(); if(f.tagName==='INPUT'){ const n = f.value.length; try{ f.setSelectionRange(n,n); }catch(e){} } }
+}
+
+/* ---------- actions ---------- */
+function twoStep(name, fn){ if(V.confirm===name){ V.confirm=''; fn(); } else { V.confirm=name; render(); } }
+const ACT = {
+  avatar(t){ V.avatar = t.dataset.a; const n = document.getElementById('new-name').value; render(); document.getElementById('new-name').value = n; },
+  pick(t){ S.cur = t.dataset.id; V.view='home'; V.msg=''; save(); render(); },
+  go(t){ quiet(); sayTok++; V.view = t.dataset.v; V.msg=''; V.confirm=''; sess = null; render(); },
+  start(t){ startSession(t.dataset.mode); },
+  quit(){ quiet(); sayTok++; sess=null; V.view='home'; render(); },
+  say(){ sayWord(sess.q[sess.i].w); refocus(); },
+  slow(){ sayWord(sess.q[sess.i].w, true); refocus(); },
+  letters(){ sayTok++; quiet(); tts(sess.q[sess.i].w.toUpperCase().split('').join(', '), 0.7); },
+  async info(t){
+    const w = sess.q[sess.i].w, k = t.dataset.k, i = sess.i;
+    sess.panel = 'Looking it up…'; render();
+    const info = await getInfo(w);
+    if(!sess || sess.i!==i || sess.stage!=='ask') return;
+    const none = {def:'No definition found for this word.', ex:'No example sentence found for this word.', origin:'No origin found for this word.'};
+    const text = info && info[k];
+    sess.panel = text ? mask(text, w) : (info ? none[k] : 'The dictionary could not be reached. Check the internet connection.');
+    render();
+    if(text && k==='ex'){ sayTok++; quiet(); tts(text, 0.85); }
+  },
+  check(){ check(); },
+  next(){ next(); },
+  cover(){ sess.stage='cover'; sess.attempt=''; quiet(); render(); },
+  peek(){ sess.stage='study'; sess.attempt=''; render(); },
+  checkcover(){ checkCover(); },
+  test(t){ sayWord(t.dataset.w); },
+  addlist(){
+    const name = document.getElementById('list-name').value.trim(), words = parseWords(document.getElementById('list-words').value);
+    if(!words.length){ V.msg = 'Type or paste at least one word before saving the list.'; render(); return; }
+    const l = {id:uid(), name:name || 'My word list', words};
+    S.lists.push(l); prof().listId = l.id; V.msg = `Saved “${l.name}” with ${words.length} words. It is now the active list.`; save(); render();
+  },
+  dellist(){ twoStep('list', () => { const id = activeList().id; S.lists = S.lists.filter(l => l.id!==id); for(const p of S.profiles) if(p.listId===id) p.listId = S.lists[0].id; V.msg='List deleted.'; save(); render(); }); },
+  reset(){ twoStep('reset', () => { const p = prof(); p.words={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; V.msg='Progress erased.'; save(); render(); }); },
+  remove(){ twoStep('remove', () => { S.profiles = S.profiles.filter(p => p.id!==S.cur); S.cur=null; V.view='profiles'; save(); render(); }); },
+  mkbackup(){ document.getElementById('backup').value = JSON.stringify(S); },
+  async copybackup(){
+    const ta = document.getElementById('backup'); if(!ta.value) ta.value = JSON.stringify(S);
+    try{ await navigator.clipboard.writeText(ta.value); V.msg='Backup copied.'; }catch(e){ ta.select(); V.msg='Copy was blocked. The text is selected, so press Ctrl+C or Cmd+C.'; return; }
+    const keep = ta.value; render(); document.getElementById('backup').value = keep;
+  },
+  dlbackup(){
+    try{ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S)], {type:'application/json'})); a.download = 'spellhive-backup-'+today()+'.json'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
+  },
+  restore(){
+    try{
+      const o = JSON.parse(document.getElementById('backup').value);
+      if(!o || !Array.isArray(o.profiles) || !Array.isArray(o.lists) || !o.lists.length) throw 0;
+      o.fix = o.fix || {}; S = o; if(!prof()) S.cur = S.profiles.length ? S.profiles[0].id : null;
+      V.msg = 'Backup restored.'; save();
+    }catch(e){ V.msg = 'That text is not a SpellHive backup. Paste the full backup and try again.'; }
+    render();
+  }
+};
+function refocus(){ const f = document.getElementById('answer'); if(f) f.focus(); }
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act]');
+  if(!t) return;
+  if(V.confirm && !['dellist','reset','remove'].includes(t.dataset.act)) V.confirm = '';
+  ACT[t.dataset.act](t);
+});
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  if(e.target.id !== 'add-player') return;
+  const name = document.getElementById('new-name').value.trim();
+  if(!name) { document.getElementById('new-name').focus(); return; }
+  const p = {id:uid(), name, avatar:V.avatar, points:0, streak:0, lastDay:'', badges:[], listId:S.lists[0].id, words:{}};
+  S.profiles.push(p); S.cur = p.id; V.view='home'; save(); render();
+});
+document.addEventListener('input', e => { if(e.target.id==='answer' && sess) sess.attempt = e.target.value; });
+document.addEventListener('keydown', e => {
+  if(e.key!=='Enter' || e.repeat || e.target.id!=='answer' || !sess) return;
+  e.preventDefault();
+  if(sess.stage==='ask') check(); else if(sess.stage==='cover') checkCover();
+});
+document.addEventListener('change', e => {
+  const t = e.target, k = t.dataset.chg;
+  if(k==='pick'){ prof().listId = t.value; save(); render(); }
+  else if(k==='fix'){
+    const w = t.dataset.w, v = t.value.trim(), f = S.fix[w] || (S.fix[w] = {});
+    if(v) f[t.dataset.k] = v; else delete f[t.dataset.k];
+    if(!Object.keys(f).length) delete S.fix[w];
+    save();
+  }
+  else if(k==='file' && t.files[0]){ t.files[0].text().then(txt => { document.getElementById('backup').value = txt; }); }
+});
+
+if(prof()) V.view = 'home';
+render();
+</script>
+</body>
+</html>
