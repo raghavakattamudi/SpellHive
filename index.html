@@ -153,7 +153,9 @@ let sess = null;
 
 /* ---------- helpers ---------- */
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const norm = s => String(s).trim().toLowerCase().replace(/\s+/g,' ');
+const norm = s => String(s).normalize('NFC').trim().toLowerCase().replace(/\s+/g,' ');
+// fold: what counts as the same spelling. Accents are ignored (pinata = piñata) and curly apostrophes match straight ones.
+const fold = s => norm(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2018\u2019]/g,"'");
 const uid = () => Math.random().toString(36).slice(2,9);
 function dstr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function today(off){ const d = new Date(); d.setDate(d.getDate()+(off||0)); return dstr(d); }
@@ -370,7 +372,7 @@ function startSession(mode){
   }
   if(!q.length){ V.msg = mode==='trouble' ? 'No trouble words right now. Nice work!' : 'This list has no words yet. Tap Change list to pick another.'; render(); return; }
   V.msg = '';
-  sess = { mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, right:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], out:false, last:'', coverFail:false };
+  sess = { mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, right:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], out:false, last:'', coverFail:false, tries:{} };
   V.view = 'play';
   render();
   sayWord(sess.q[0].w);
@@ -382,7 +384,7 @@ function check(){
   const p = prof();
   const r = p.words[w] || (p.words[w] = {box:1,due:'',att:0,ok:0,bad:0,miss:[]});
   r.att++; r.last = today(); r.ts = Date.now(); p.t = r.ts;
-  if(a === w){
+  if(fold(a) === fold(w)){
     r.ok++;
     if(!it.retry){
       if(r.bad>0) award('comeback');
@@ -395,7 +397,7 @@ function check(){
   } else {
     r.bad++; r.box = 1; r.due = today();
     if(!r.miss.includes(a)){ r.miss.unshift(a); r.miss = r.miss.slice(0,5); }
-    sess.run = 0; sess.last = a;
+    sess.run = 0; sess.last = a; sess.tries[w] = (sess.tries[w]||0) + 1;
     if(!sess.missed.includes(w)) sess.missed.push(w);
     if(sess.mode==='bee') sess.out = true;
     else sess.q.splice(Math.min(sess.q.length, sess.i+3), 0, {w, retry:true});
@@ -408,8 +410,8 @@ function check(){
 function checkCover(){
   const w = sess.q[sess.i].w;
   if(!norm(sess.attempt)) return;
-  if(norm(sess.attempt) === w){ next(); }
-  else { sess.attempt=''; sess.coverFail = true; sess.stage='study'; render(); }
+  if(fold(sess.attempt) === fold(w)){ next(); }
+  else { sess.last = norm(sess.attempt); sess.tries[w] = (sess.tries[w]||0) + 1; sess.attempt=''; sess.coverFail = true; sess.stage='study'; render(); }
 }
 function next(){
   sess.attempt=''; sess.panel=null; sess.coverFail=false;
@@ -487,6 +489,7 @@ function vPlay(){
   const top = sess.stage==='done' ? '' : `<div class="bar"><button class="link" data-act="quit">Quit</button><span>${names[sess.mode]} · Word ${sess.i+1} of ${sess.q.length}</span><span class="stat">${sess.pts} pts</span></div>
     <div class="prog"><i style="width:${Math.round(sess.i/sess.q.length*100)}%"></i></div>`;
   const inputAttrs = 'type="text" data-focus class="answer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Your spelling"';
+  const canSkip = (sess.tries[w]||0) >= 3;
   let body = '';
   if(sess.stage==='ask'){
     body = `<section class="card center">
@@ -507,10 +510,11 @@ function vPlay(){
     body = `<section class="card center">
       <p class="big good pop">Correct! +1 point</p>
       <p class="spell">${esc(w)}</p>
+      ${fold(w) !== w ? '<p class="muted">This word is written with an accent mark. Plain letters count as correct.</p>' : ''}
       <button class="btn" data-act="next" data-focus>${sess.i+1>=sess.q.length ? 'Finish' : 'Next word'}</button>
     </section>`;
   } else if(sess.stage==='study'){
-    const [ma,mb] = lcs(sess.last, w);
+    const [ma,mb] = lcs(fold(sess.last), fold(w));
     const you = [...sess.last].map((c,i) => `<span class="${ma[i]?'':'x'}">${esc(c)}</span>`).join('');
     const ok = [...w].map((c,i) => `<span class="${mb[i]?'':'m'}">${esc(c)}</span>`).join('');
     body = `<section class="card center">
@@ -527,13 +531,14 @@ function vPlay(){
         <button class="chip" data-act="letters">Spell it out loud</button>
       </div>
       <button class="btn" data-act="cover" data-focus>Cover it and spell it</button>
+      ${canSkip ? '<button class="btn small alt" data-act="skip">Skip for now</button><p class="muted">This word will come back next time.</p>' : ''}
     </section>`;
   } else if(sess.stage==='cover'){
     body = `<section class="card center">
       <h2>Now spell it from memory</h2>
       <button class="chip" data-act="say">Hear it</button>
       <input id="answer" ${inputAttrs} placeholder="Type the spelling" value="${esc(sess.attempt)}">
-      <div class="row"><button class="btn" data-act="checkcover">Check</button><button class="btn alt" data-act="peek">Peek again</button></div>
+      <div class="row"><button class="btn" data-act="checkcover">Check</button><button class="btn alt" data-act="peek">Peek again</button>${canSkip ? '<button class="btn alt" data-act="skip">Skip for now</button>' : ''}</div>
     </section>`;
   } else {
     const p = prof();
@@ -686,6 +691,7 @@ const ACT = {
   next(){ next(); },
   cover(){ sess.stage='cover'; sess.attempt=''; quiet(); render(); },
   peek(){ sess.stage='study'; sess.attempt=''; render(); },
+  skip(){ const w = sess.q[sess.i].w; sess.q = sess.q.filter((it,i) => i <= sess.i || it.w !== w); next(); },
   checkcover(){ checkCover(); },
   test(t){ sayWord(t.dataset.w); },
   addlist(){
