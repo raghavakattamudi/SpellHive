@@ -101,6 +101,10 @@ td input[type=text]{width:120px;padding:4px 8px;border-width:1px}
 .pill{border-radius:999px;padding:1px 10px;font-weight:700;font-size:.8rem;border:2px solid var(--ink);white-space:nowrap}
 .pill.b1{background:#F0A29B}.pill.b2{background:#FFE694}.pill.b3{background:var(--honey)}.pill.b4,.pill.b5{background:var(--amber);color:#fff}
 .note{background:var(--card);border-left:6px solid var(--amber);padding:10px 14px;border-radius:8px}
+.lrow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:2px solid var(--line);border-radius:12px;padding:8px 12px}
+.lrow.on{border-color:var(--ink);background:var(--paper)}
+.code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.4rem;font-weight:700;letter-spacing:.06em;background:var(--paper);border:2px dashed var(--ink);border-radius:12px;padding:8px 14px;text-align:center;overflow-wrap:anywhere}
+.code.small{font-size:.95rem;padding:2px 8px;border-width:1px}
 @keyframes pop{from{transform:scale(.6)}to{transform:scale(1)}}
 .pop{animation:pop .25s ease-out}
 @media (prefers-reduced-motion:reduce){.pop{animation:none}.btn:active,.mode:active,.speaker:active{transform:none}}
@@ -126,13 +130,25 @@ const BADGES = {
   crown:["Queen's Crown",'Finished a Mock Bee with no misses']
 };
 const SESSION_SIZE = 10, BEE_SIZE = 25;
+// Cloud sync and list sharing are optional. Forks: put your own Firebase project here, or leave both empty to turn the cloud features off.
+const FB = { apiKey:'AIzaSyBBFFeYYMIjdhRIXxWBUb1M1C3NCbMrHOA', projectId:'spellhive-faf11' };
+const cloudOn = !!(FB.apiKey && FB.projectId);
 const app = document.getElementById('app');
 
 /* ---------- storage ---------- */
 function load(){ try{ const r = localStorage.getItem(KEY); if(r) return JSON.parse(r); }catch(e){} return null; }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
-let S = load() || { profiles:[], lists:[{id:'sample',name:'Sample words',words:SAMPLE.slice()}], fix:{}, cur:null };
-let V = { view:'profiles', avatar:AVATARS[0], msg:'', confirm:'' };
+function saveLocal(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+function save(){ saveLocal(); scheduleSync(); }
+function starterList(){ return {id:'sample', name:'Tricky words starter', kind:'builtin', t:0, words:SAMPLE.slice()}; }
+let S = load() || { profiles:[], lists:[starterList()], fix:{}, gone:{}, cur:null };
+function migrate(){
+  S.profiles = S.profiles || []; S.fix = S.fix || {}; S.gone = S.gone || {};
+  if(!S.lists || !S.lists.length) S.lists = [starterList()];
+  for(const l of S.lists){ if(!l.kind) l.kind = l.id==='sample' ? 'builtin' : 'own'; if(l.id==='sample') l.name = 'Tricky words starter'; }
+  for(const p of S.profiles){ p.badges = p.badges || []; p.words = p.words || {}; }
+}
+migrate();
+let V = { view:'profiles', avatar:AVATARS[0], msg:'', confirm:'', sync:'', defaultList:'' };
 let sess = null;
 
 /* ---------- helpers ---------- */
@@ -220,6 +236,106 @@ async function sayWord(w, slow){
   tts((f && f.say) || w, slow ? 0.5 : 0.85);
 }
 
+/* ---------- cloud: family sync and shared lists (optional) ---------- */
+const ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function newCode(){ const a = new Uint32Array(8); crypto.getRandomValues(a); let c = ''; for(const n of a) c += ALPHA[n % ALPHA.length]; return c; }
+function cleanCode(v){ return String(v).toUpperCase().replace(/^\s*(HIVE|LIST)/, '').replace(/[^A-Z0-9]/g, ''); }
+function fmt(prefix, code){ return prefix + '-' + code.slice(0,4) + '-' + code.slice(4); }
+function shareLink(code){ return location.origin + location.pathname + '#list-' + code; }
+function docUrl(col, id, extra){ return 'https://firestore.googleapis.com/v1/projects/' + FB.projectId + '/databases/(default)/documents/' + col + '/' + id + '?key=' + FB.apiKey + (extra || ''); }
+async function cloudGet(col, id){
+  const r = await fetch(docUrl(col, id));
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error('code ' + r.status);
+  const j = await r.json(), o = {};
+  for(const k in j.fields || {}){ const v = j.fields[k]; o[k] = ('stringValue' in v) ? v.stringValue : Number(v.integerValue); }
+  return o;
+}
+async function cloudPut(col, id, obj, createOnly){
+  const fields = {};
+  for(const k in obj) fields[k] = typeof obj[k] === 'string' ? {stringValue:obj[k]} : {integerValue:String(obj[k])};
+  const r = await fetch(docUrl(col, id, createOnly ? '&currentDocument.exists=false' : ''), {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields})});
+  if(!r.ok) throw new Error('code ' + r.status);
+}
+function cloudErr(e){ return 'Could not reach the cloud (' + ((e && e.message) || 'network') + '). Check the internet connection and try again.'; }
+function busy(){ V.msg = 'Contacting the cloud…'; render(); }
+function payload(){ return JSON.stringify({v:1, profiles:S.profiles, lists:S.lists, fix:S.fix, gone:S.gone}); }
+function newer(x, y){ return (y.t||0) > (x.t||0) ? y : x; }
+function mergeProfile(x, y){
+  const n = newer(x, y), r = Object.assign({}, n), ra = Math.max(x.resetAt||0, y.resetAt||0);
+  r.resetAt = ra;
+  r.badges = (x.resetAt||0) === (y.resetAt||0) ? [...new Set([...(x.badges||[]), ...(y.badges||[])])] : (n.badges||[]).slice();
+  r.words = {};
+  const xw = x.words || {}, yw = y.words || {};
+  for(const w of new Set([...Object.keys(xw), ...Object.keys(yw)])){
+    const a = xw[w], b = yw[w], rec = !a ? b : !b ? a : ((b.ts||0) > (a.ts||0) ? b : a);
+    if((rec.ts||0) >= ra) r.words[w] = rec;
+  }
+  return r;
+}
+function mergeState(a, b){
+  const gone = Object.assign({}, a.gone || {});
+  for(const k in b.gone || {}) gone[k] = Math.max(gone[k]||0, b.gone[k]);
+  const byId = (xs, ys, f) => { const m = new Map(); for(const x of xs || []) m.set(x.id, x); for(const y of ys || []) m.set(y.id, m.has(y.id) ? f(m.get(y.id), y) : y); return [...m.values()]; };
+  const profiles = byId(a.profiles, b.profiles, mergeProfile).filter(p => !gone[p.id]);
+  const lists = byId(a.lists, b.lists, newer).filter(l => l.kind==='builtin' || !(gone[l.id] >= (l.t||0)));
+  const fix = Object.assign({}, a.fix || {});
+  for(const w in b.fix || {}) fix[w] = fix[w] ? newer(fix[w], b.fix[w]) : b.fix[w];
+  return {profiles, lists, fix, gone};
+}
+function applyMerge(remote){
+  const m = mergeState(S, remote);
+  S.profiles = m.profiles; S.lists = m.lists; S.fix = m.fix; S.gone = m.gone;
+  migrate();
+  if(S.cur && !prof()) S.cur = null;
+}
+let syncTimer = null, syncBusy = false;
+function scheduleSync(ms){ if(!cloudOn || !S.sync) return; clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, ms == null ? 3000 : ms); }
+async function syncNow(){
+  if(!cloudOn || !S.sync || syncBusy) return;
+  syncBusy = true; clearTimeout(syncTimer);
+  try{
+    const doc = await cloudGet('hives', S.sync.code);
+    if(doc && doc.data) applyMerge(JSON.parse(doc.data));
+    const out = payload();
+    if(!doc || doc.data !== out) await cloudPut('hives', S.sync.code, {data:out, updated:Date.now()});
+    V.sync = 'ok';
+  }catch(e){ V.sync = navigator.onLine === false ? 'offline' : 'error'; }
+  syncBusy = false; saveLocal();
+  const typing = document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName || '');
+  if(V.view==='home' || (V.view==='profiles' && !typing)) render();
+}
+function syncLabel(){ return V.sync==='ok' ? 'Synced' : V.sync==='offline' ? 'Offline. Sync resumes when you are back online.' : V.sync==='error' ? 'Sync problem. Open the grown-ups area and tap Sync now.' : 'Syncing…'; }
+async function addSharedList(code){
+  let l = S.lists.find(x => x.code === code);
+  try{
+    if(!l){
+      const doc = await cloudGet('lists', code);
+      if(!doc){ V.msg = 'No list uses that code. Check it and try again.'; return; }
+      l = {id:'s_'+code, name:String(doc.name || 'Shared list').slice(0,60), kind:'shared', code, t:Date.now(), words:parseWords(JSON.parse(doc.words).join('\n'))};
+      S.lists.push(l);
+    }
+    const p = prof();
+    if(p){ p.listId = l.id; p.t = Date.now(); V.view = 'home'; } else V.defaultList = l.id;
+    V.msg = `Added “${l.name}” with ${l.words.length} words.`;
+    save();
+  }catch(e){ V.msg = cloudErr(e); }
+}
+async function joinFamily(raw){
+  const code = cleanCode(raw);
+  if(code.length !== 8){ V.msg = 'A family code has 8 letters and numbers after HIVE. Check it and try again.'; render(); return; }
+  busy();
+  try{
+    const doc = await cloudGet('hives', code);
+    if(!doc){ V.msg = 'No family uses that code. Check it and try again.'; render(); return; }
+    S.sync = {code};
+    if(doc.data) applyMerge(JSON.parse(doc.data));
+    await cloudPut('hives', code, {data:payload(), updated:Date.now()});
+    V.sync = 'ok'; V.msg = 'This phone is now synced.';
+  }catch(e){ V.msg = cloudErr(e); }
+  saveLocal(); render();
+}
+
 /* ---------- sessions ---------- */
 function startSession(mode){
   const b = buckets(), words = activeList().words, p = prof();
@@ -230,7 +346,7 @@ function startSession(mode){
     q = shuffle(b.miss).concat(shuffle(b.due), b.fresh).slice(0, SESSION_SIZE);
     if(!q.length) q = words.slice().sort((x,y) => p.words[x].box - p.words[y].box).slice(0, SESSION_SIZE);
   }
-  if(!q.length){ V.msg = mode==='trouble' ? 'No trouble words right now. Nice work!' : 'This list has no words yet. Add some in the grown-ups area.'; render(); return; }
+  if(!q.length){ V.msg = mode==='trouble' ? 'No trouble words right now. Nice work!' : 'This list has no words yet. Tap Change list to pick another.'; render(); return; }
   V.msg = '';
   sess = { mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, right:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], out:false, last:'', coverFail:false };
   V.view = 'play';
@@ -243,7 +359,7 @@ function check(){
   if(!a) return;
   const p = prof();
   const r = p.words[w] || (p.words[w] = {box:1,due:'',att:0,ok:0,bad:0,miss:[]});
-  r.att++; r.last = today();
+  r.att++; r.last = today(); r.ts = Date.now(); p.t = r.ts;
   if(a === w){
     r.ok++;
     if(!it.retry){
@@ -280,6 +396,7 @@ function next(){
 }
 function finish(){
   const p = prof(), t = today();
+  p.t = Date.now();
   if(p.lastDay !== t){ p.streak = (p.lastDay === today(-1)) ? p.streak+1 : 1; p.lastDay = t; }
   award('first');
   if(p.streak>=3) award('day3');
@@ -297,6 +414,7 @@ function header(right){
 function vProfiles(){
   const players = S.profiles.map(p => `<button class="player" data-act="pick" data-id="${p.id}"><i>${p.avatar}</i>${esc(p.name)}<span class="muted">${p.points} pts</span></button>`).join('');
   return header() + `<main class="wrap">
+    ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
     ${S.profiles.length ? `<h2>Who is practicing?</h2><div class="players">${players}</div>` : `<p class="note">SpellHive reads each word aloud, checks the spelling, and brings back missed words until they stick. Add a player to start.</p>`}
     <form class="card" id="add-player">
       <h3>Add a player</h3>
@@ -304,6 +422,11 @@ function vProfiles(){
       <div class="row" role="group" aria-label="Pick an avatar">${AVATARS.map(a => `<button type="button" class="av ${a===V.avatar?'on':''}" data-act="avatar" data-a="${a}" aria-pressed="${a===V.avatar}">${a}</button>`).join('')}</div>
       <div><button class="btn" type="submit">Add player</button></div>
     </form>
+    ${cloudOn && !S.sync ? `<section class="card">
+      <h3>Already use SpellHive on another phone?</h3>
+      <label for="join-code">Family code<input type="text" id="join-code" placeholder="HIVE-7K2Q-M9XD" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <div><button class="btn small alt" data-act="syncjoin">Join with this code</button></div>
+    </section>` : ''}
   </main>`;
 }
 function vHome(){
@@ -316,7 +439,8 @@ function vHome(){
     ${canSpeak ? '' : '<p class="note">This browser cannot read words aloud. Try Chrome, Edge or Safari.</p>'}
     ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
     <section class="card">
-      <div class="bar"><h2>${esc(L.name)}</h2><span><b>${b.mastered}</b> of ${b.total} words mastered</span></div>
+      <div class="bar"><h2>${esc(L.name)}</h2><button class="chip" data-act="go" data-v="lists">Change list</button></div>
+      <p><b>${b.mastered}</b> of ${b.total} words mastered</p>
       <div class="hive" aria-hidden="true">${cells}</div>
       <div class="legend">
         <span><i class="cell"></i>New ${b.fresh.length}</span>
@@ -331,7 +455,7 @@ function vHome(){
       <button class="mode" data-act="start" data-mode="bee"><b>Mock Bee</b><span>One try per word. A miss ends the round.</span></button>
     </div>
     <section class="card"><h3>Badges</h3><div class="badges">${badges}</div></section>
-    <div class="row"><button class="link" data-act="go" data-v="profiles">Switch player</button><button class="link" data-act="go" data-v="parent">Grown-ups: word lists and progress</button></div>
+    <div class="row"><button class="link" data-act="go" data-v="profiles">Switch player</button><button class="link" data-act="go" data-v="parent">Grown-ups: progress, sharing and sync</button>${S.sync ? `<span class="muted">${syncLabel()}</span>` : ''}</div>
   </main>`;
 }
 const SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
@@ -418,21 +542,10 @@ function vParent(){
   return header(`<span>${p.avatar} <b>${esc(p.name)}</b></span>`) + `<main class="wrap">
     <div class="bar"><h2>Grown-ups</h2><button class="btn small alt" data-act="go" data-v="home">Back to the hive</button></div>
     ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
+    ${listsCard()}
+    ${syncCard()}
     <section class="card">
-      <h3>Word list for ${esc(p.name)}</h3>
-      <div class="row">
-        <select id="list-pick" data-chg="pick" aria-label="Active word list">${S.lists.map(l => `<option value="${l.id}" ${l.id===L.id?'selected':''}>${esc(l.name)} (${l.words.length})</option>`).join('')}</select>
-        ${S.lists.length>1 ? `<button class="btn small danger" data-act="dellist">${V.confirm==='list' ? 'Tap again to delete this list' : 'Delete this list'}</button>` : ''}
-      </div>
-    </section>
-    <section class="card">
-      <h3>Add a word list</h3>
-      <label for="list-name">List name<input type="text" id="list-name" maxlength="40" placeholder="School bee, round 1"></label>
-      <label for="list-words">Words, one per line or separated by commas<textarea id="list-words" spellcheck="false"></textarea></label>
-      <div><button class="btn small" data-act="addlist">Save list</button></div>
-    </section>
-    <section class="card">
-      <h3>Progress, hardest words first</h3>
+      <h3>Progress on ${esc(L.name)}, hardest words first</h3>
       <p class="muted">If the voice says a word wrong, type how it sounds under “Say it as” (for example “kernel” for colonel). Chunks are separated with dashes.</p>
       <div class="scroll"><table><thead><tr><th>Word</th><th>Status</th><th class="n">Right</th><th class="n">Wrong</th><th>Misspellings</th><th>Say it as</th><th>Chunks</th><th></th></tr></thead><tbody>${order.map(i => rows[i]).join('')}</tbody></table></div>
     </section>
@@ -457,10 +570,69 @@ function vParent(){
     </section>
   </main>`;
 }
+function listMeta(l){ return (l.kind==='builtin' ? 'Built in' : l.kind==='shared' ? 'Shared list' : 'Your list') + ', ' + l.words.length + ' words'; }
+function vLists(){
+  const p = prof(), L = activeList();
+  const rows = S.lists.map(l => `<div class="lrow ${l.id===L.id?'on':''}"><div><b>${esc(l.name)}</b><br><span class="muted">${listMeta(l)}</span></div>${l.id===L.id ? '<span class="tag">Practicing</span>' : `<button class="btn small" data-act="uselist" data-id="${l.id}">Use</button>`}</div>`).join('');
+  return header(`<span>${p.avatar} <b>${esc(p.name)}</b></span>`) + `<main class="wrap">
+    <div class="bar"><h2>Word lists</h2><button class="btn small alt" data-act="go" data-v="home">Back to the hive</button></div>
+    ${V.msg ? `<p class="note">${esc(V.msg)}</p>` : ''}
+    <section class="card">${rows}</section>
+    ${cloudOn ? `<section class="card">
+      <h3>Have a list code?</h3>
+      <label for="list-code">List code<input type="text" id="list-code" placeholder="LIST-X7Q2-M9XD" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <div><button class="btn small" data-act="joinlist">Add list</button></div>
+    </section>` : ''}
+    <section class="card">
+      <h3>Create your own list</h3>
+      <label for="list-name">List name<input type="text" id="list-name" maxlength="40" placeholder="School bee, round 1"></label>
+      <label for="list-words">Words, one per line or separated by commas<textarea id="list-words" spellcheck="false"></textarea></label>
+      <div><button class="btn small" data-act="addlist">Save list</button></div>
+    </section>
+  </main>`;
+}
+function listsCard(){
+  const rows = S.lists.map(l => {
+    const share = l.code
+      ? `<span class="code small">${fmt('LIST', l.code)}</span><button class="chip" data-act="copy" data-text="${fmt('LIST', l.code)}">Copy code</button><button class="chip" data-act="copy" data-text="${esc(shareLink(l.code))}">Copy link</button>`
+      : (l.kind==='own' && cloudOn ? `<button class="chip" data-act="sharelist" data-id="${l.id}">Share list</button>` : '');
+    const del = l.kind==='builtin' ? '' : `<button class="chip" data-act="dellist" data-id="${l.id}">${V.confirm==='list:'+l.id ? 'Tap again to delete' : 'Delete'}</button>`;
+    return `<div class="lrow"><div><b>${esc(l.name)}</b><br><span class="muted">${listMeta(l)}</span></div><div class="row">${share}${del}</div></div>`;
+  }).join('');
+  return `<section class="card">
+      <h3>Word lists</h3>
+      ${rows}
+      ${cloudOn ? '<p class="muted">Sharing gives a list code other families can enter. A shared list cannot be changed afterwards. To fix a word, save a new list and share its code.</p>' : ''}
+      <div><button class="btn small alt" data-act="go" data-v="lists">Add or switch lists</button></div>
+    </section>`;
+}
+function syncCard(){
+  if(!cloudOn) return '';
+  if(S.sync){
+    const c = fmt('HIVE', S.sync.code);
+    return `<section class="card">
+      <div class="bar"><h3>Sync across phones</h3><span class="muted">${syncLabel()}</span></div>
+      <p class="muted">This is your family code. Enter it on another phone to continue there. Anyone with the code can see and change your family’s data, so keep it private.</p>
+      <p class="code">${c}</p>
+      <div class="row">
+        <button class="btn small" data-act="copy" data-text="${c}">Copy code</button>
+        <button class="btn small alt" data-act="syncnow">Sync now</button>
+        <button class="btn small danger" data-act="syncoff">${V.confirm==='syncoff' ? 'Tap again to turn off' : 'Turn off sync on this phone'}</button>
+      </div>
+    </section>`;
+  }
+  return `<section class="card">
+      <h3>Sync across phones</h3>
+      <p class="muted">Keep players, lists and progress the same on every phone. Sync stores first names, word lists and spelling results online under a private family code. No email or login.</p>
+      <div><button class="btn small" data-act="syncon">Turn on sync</button></div>
+      <label for="join-code">Already have a family code?<input type="text" id="join-code" placeholder="HIVE-7K2Q-M9XD" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <div><button class="btn small alt" data-act="syncjoin">Join with this code</button></div>
+    </section>`;
+}
 function render(){
   const p = prof();
   if(!p) V.view = 'profiles';
-  app.innerHTML = V.view==='home' ? vHome() : V.view==='play' ? vPlay() : V.view==='parent' ? vParent() : vProfiles();
+  app.innerHTML = V.view==='home' ? vHome() : V.view==='play' ? vPlay() : V.view==='parent' ? vParent() : V.view==='lists' ? vLists() : vProfiles();
   const f = app.querySelector('[data-focus]');
   if(f){ f.focus(); if(f.tagName==='INPUT'){ const n = f.value.length; try{ f.setSelectionRange(n,n); }catch(e){} } }
 }
@@ -496,12 +668,51 @@ const ACT = {
   addlist(){
     const name = document.getElementById('list-name').value.trim(), words = parseWords(document.getElementById('list-words').value);
     if(!words.length){ V.msg = 'Type or paste at least one word before saving the list.'; render(); return; }
-    const l = {id:uid(), name:name || 'My word list', words};
-    S.lists.push(l); prof().listId = l.id; V.msg = `Saved “${l.name}” with ${words.length} words. It is now the active list.`; save(); render();
+    const l = {id:uid(), name:name || 'My word list', kind:'own', t:Date.now(), words}, p = prof();
+    S.lists.push(l); p.listId = l.id; p.t = l.t; V.view = 'home';
+    V.msg = `Saved “${l.name}” with ${words.length} words.` + (cloudOn ? ' To share it with other families, open the grown-ups area.' : '');
+    save(); render();
   },
-  dellist(){ twoStep('list', () => { const id = activeList().id; S.lists = S.lists.filter(l => l.id!==id); for(const p of S.profiles) if(p.listId===id) p.listId = S.lists[0].id; V.msg='List deleted.'; save(); render(); }); },
-  reset(){ twoStep('reset', () => { const p = prof(); p.words={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; V.msg='Progress erased.'; save(); render(); }); },
-  remove(){ twoStep('remove', () => { S.profiles = S.profiles.filter(p => p.id!==S.cur); S.cur=null; V.view='profiles'; save(); render(); }); },
+  uselist(t){ const p = prof(); p.listId = t.dataset.id; p.t = Date.now(); V.view = 'home'; V.msg = ''; save(); render(); },
+  dellist(t){ const id = t.dataset.id; twoStep('list:'+id, () => { S.gone[id] = Date.now(); S.lists = S.lists.filter(l => l.id!==id); V.msg = 'List deleted.'; save(); render(); }); },
+  async sharelist(t){
+    const l = S.lists.find(x => x.id === t.dataset.id); if(!l) return;
+    busy();
+    try{
+      const code = newCode();
+      await cloudPut('lists', code, {name:l.name, words:JSON.stringify(l.words), updated:Date.now()}, true);
+      l.code = code; l.t = Date.now();
+      V.msg = `“${l.name}” is shared. Send the list code or link to other families.`;
+      save();
+    }catch(e){ V.msg = cloudErr(e); }
+    render();
+  },
+  async joinlist(){
+    const code = cleanCode(document.getElementById('list-code').value);
+    if(code.length !== 8){ V.msg = 'A list code has 8 letters and numbers after LIST. Check it and try again.'; render(); return; }
+    busy(); await addSharedList(code); render();
+  },
+  async copy(t){
+    try{ await navigator.clipboard.writeText(t.dataset.text); V.msg = 'Copied: ' + t.dataset.text; }
+    catch(e){ V.msg = 'Copy was blocked. Copy it by hand: ' + t.dataset.text; }
+    render();
+  },
+  async syncon(){
+    busy();
+    try{
+      let code = newCode();
+      for(let i=0; i<3 && await cloudGet('hives', code); i++) code = newCode();
+      await cloudPut('hives', code, {data:payload(), updated:Date.now()});
+      S.sync = {code}; V.sync = 'ok'; V.msg = 'Sync is on. Enter the family code on your other phones.';
+      saveLocal();
+    }catch(e){ V.msg = cloudErr(e); }
+    render();
+  },
+  syncjoin(){ joinFamily(document.getElementById('join-code').value); },
+  async syncnow(){ await syncNow(); V.msg = V.sync==='ok' ? 'Synced.' : 'Sync did not finish. Check the internet connection and try again.'; render(); },
+  syncoff(){ twoStep('syncoff', () => { delete S.sync; V.sync = ''; V.msg = 'Sync is off on this phone. Everything stays saved here.'; saveLocal(); render(); }); },
+  reset(){ twoStep('reset', () => { const p = prof(); p.resetAt = p.t = Date.now(); p.words={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; V.msg='Progress erased.'; save(); render(); }); },
+  remove(){ twoStep('remove', () => { S.gone[S.cur] = Date.now(); S.profiles = S.profiles.filter(p => p.id!==S.cur); S.cur=null; V.view='profiles'; save(); render(); }); },
   mkbackup(){ document.getElementById('backup').value = JSON.stringify(S); },
   async copybackup(){
     const ta = document.getElementById('backup'); if(!ta.value) ta.value = JSON.stringify(S);
@@ -515,7 +726,7 @@ const ACT = {
     try{
       const o = JSON.parse(document.getElementById('backup').value);
       if(!o || !Array.isArray(o.profiles) || !Array.isArray(o.lists) || !o.lists.length) throw 0;
-      o.fix = o.fix || {}; S = o; if(!prof()) S.cur = S.profiles.length ? S.profiles[0].id : null;
+      S = o; migrate(); if(!prof()) S.cur = S.profiles.length ? S.profiles[0].id : null;
       V.msg = 'Backup restored.'; save();
     }catch(e){ V.msg = 'That text is not a SpellHive backup. Paste the full backup and try again.'; }
     render();
@@ -526,7 +737,7 @@ function refocus(){ const f = document.getElementById('answer'); if(f) f.focus()
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]');
   if(!t) return;
-  if(V.confirm && !['dellist','reset','remove'].includes(t.dataset.act)) V.confirm = '';
+  if(V.confirm && !['dellist','reset','remove','syncoff'].includes(t.dataset.act)) V.confirm = '';
   ACT[t.dataset.act](t);
 });
 document.addEventListener('submit', e => {
@@ -534,7 +745,7 @@ document.addEventListener('submit', e => {
   if(e.target.id !== 'add-player') return;
   const name = document.getElementById('new-name').value.trim();
   if(!name) { document.getElementById('new-name').focus(); return; }
-  const p = {id:uid(), name, avatar:V.avatar, points:0, streak:0, lastDay:'', badges:[], listId:S.lists[0].id, words:{}};
+  const p = {id:uid(), name, avatar:V.avatar, points:0, streak:0, lastDay:'', badges:[], listId:V.defaultList || S.lists[0].id, words:{}, t:Date.now()};
   S.profiles.push(p); S.cur = p.id; V.view='home'; save(); render();
 });
 document.addEventListener('input', e => { if(e.target.id==='answer' && sess) sess.attempt = e.target.value; });
@@ -545,11 +756,11 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target, k = t.dataset.chg;
-  if(k==='pick'){ prof().listId = t.value; save(); render(); }
+  if(k==='pick'){ prof().listId = t.value; prof().t = Date.now(); save(); render(); }
   else if(k==='fix'){
     const w = t.dataset.w, v = t.value.trim(), f = S.fix[w] || (S.fix[w] = {});
     if(v) f[t.dataset.k] = v; else delete f[t.dataset.k];
-    if(!Object.keys(f).length) delete S.fix[w];
+    f.t = Date.now();
     save();
   }
   else if(k==='file' && t.files[0]){ t.files[0].text().then(txt => { document.getElementById('backup').value = txt; }); }
@@ -557,6 +768,13 @@ document.addEventListener('change', e => {
 
 if(prof()) V.view = 'home';
 render();
+window.addEventListener('online', () => syncNow());
+document.addEventListener('visibilitychange', () => { if(document.visibilityState==='visible' && !sess) syncNow(); });
+(async () => {
+  const m = location.hash.match(/^#list-([A-Za-z0-9]+)$/);
+  if(m && cloudOn){ await addSharedList(cleanCode(m[1])); render(); }
+  syncNow();
+})();
 </script>
 </body>
 </html>

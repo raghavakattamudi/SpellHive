@@ -2,7 +2,7 @@
 
 A free, open-source spelling bee trainer. Paste a word list, and SpellHive reads each word aloud, checks the spelling, teaches missed words, and brings them back until they stick.
 
-No accounts, no server, no tracking. Everything runs in the browser and progress stays on the device.
+No accounts and no tracking. Everything runs in the browser, and progress stays on the device unless a family turns on sync.
 
 ## Features
 
@@ -13,6 +13,8 @@ No accounts, no server, no tracking. Everything runs in the browser and progress
 - **Gamified**: points, daily streak, levels, badges, and a hive that fills with honey as words are mastered.
 - **Grown-ups area**: add word lists, see hardest words and actual misspellings, fix pronunciations ("Say it as"), override chunks, back up and restore progress.
 - **Multiple players** per device.
+- **Shared lists**: share a list you created and get a list code (or link). Other families enter the code to practice the same words. Shared lists cannot be edited after sharing.
+- **Sync across phones** (optional): turn on sync to get a family code, then enter it on another phone. Players, lists and progress merge per word, and practice works offline.
 
 ## Run it
 
@@ -27,6 +29,21 @@ One-time setup: go to **Settings → Pages** and set **Source** to **GitHub Acti
 ## Contributing
 
 Report bugs with the bug report issue template. Pull requests run `node scripts/check.mjs` automatically.
+
+## Sync, sharing and privacy
+
+Sync and list sharing use a Firebase Firestore database through its REST API. There is no login.
+
+- A **family code** (`HIVE-XXXX-XXXX`) stores first names, word lists, pronunciation fixes and spelling results. Anyone with the code can read and change that data, so keep it private.
+- A **list code** (`LIST-XXXX-XXXX`) stores a list name and its words. Anyone with the code can read it.
+- Families that never turn on sync or share a list send nothing to the database.
+- The hosted app at `raghavakattamudi.github.io/SpellHive` stores this data in the maintainer's Firebase project.
+
+### Running your own copy
+
+1. Create a Firebase project and a Firestore database in production mode.
+2. Publish the rules in `firestore.rules` (Firestore → Rules).
+3. Put your project's `apiKey` and `projectId` in the `FB` constant near the top of the script in `index.html`. Leave both empty to turn the cloud features off.
 
 ## Notes and limits
 

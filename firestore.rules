@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // One document per family. Knowing the code is the only key.
+    // "get" is allowed but "list" is not, so codes cannot be browsed.
+    match /hives/{code} {
+      allow get: if true;
+      allow create, update: if code.matches('^[A-Z0-9]{8}$')
+        && request.resource.data.keys().hasOnly(['data', 'updated'])
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 600000
+        && request.resource.data.updated is int;
+    }
+
+    // Shared word lists. Created once, never changed or deleted from the app.
+    match /lists/{code} {
+      allow get: if true;
+      allow create: if code.matches('^[A-Z0-9]{8}$')
+        && request.resource.data.keys().hasOnly(['name', 'words', 'updated'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 60
+        && request.resource.data.words is string
+        && request.resource.data.words.size() < 100000
+        && request.resource.data.updated is int;
+    }
+  }
+}
