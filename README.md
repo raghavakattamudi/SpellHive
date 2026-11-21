@@ -9,8 +9,12 @@ No accounts and no tracking. Everything runs in the browser, and progress stays 
 - **Hears the word for you**: dictionary audio when available, browser text-to-speech otherwise. Slow replay, definition, example sentence and origin on request.
 - **Teaches on a miss**: letter-by-letter comparison, the word broken into chunks, then cover-and-retype. The word returns later in the same session.
 - **Adaptive review** (Leitner boxes): missed words come first, then words due for review, then new ones. A word is mastered after three first-try correct answers on three different days.
-- **Three modes**: Practice, Trouble words, Mock Bee (one try per word, a miss ends the round).
-- **Gamified**: points, daily streak, levels, badges, and a hive that fills with honey as words are mastered.
+- **Three practice modes**: Practice, Trouble words, Mock Bee (one try per word, a miss ends the round).
+- **Several lists at once**: tick any number of word lists; words in two lists count once. Choose words per round (5, 10, 20, 30, all or any number; default 10) and Mock Bee length.
+- **Solo games**: Beat the Clock (60 seconds), Survival (3 hearts), Unscramble (letter tiles), Daily Honey (the same 5 words for everyone on the same lists, once a day), Boss Word (your most-missed word; hit it on 3 days to beat it). Games pick hard words first, and a miss in a game makes the word a trouble word again.
+- **Play with friends**: Pass-and-Play Bee on one phone (a miss is out, unless everyone misses), Live Bee Battle (same words at the same time on each phone, with a live scoreboard), and Team League (kids join with a code, pick a team, and their honey for the week adds up for the team).
+- **Gamified**: honey, daily goal ring, streak, levels, badges, a honey shop for hats and new looks (spending never lowers levels or team scores), sounds and celebrations, and a hive that fills as words are mastered.
+- **Grown-ups lock**: settings, reports and list deletion sit behind a quick multiplication question.
 - **Grown-ups area**: add word lists, see hardest words and actual misspellings, fix pronunciations ("Say it as"), override chunks, back up and restore progress.
 - **Multiple players** per device.
 - **Shared lists**: share a list you created and get a list code (or link). Other families enter the code to practice the same words. Shared lists cannot be edited after sharing.
@@ -36,6 +40,8 @@ Sync and list sharing use a Firebase Firestore database through its REST API. Th
 
 - A **family code** (`HIVE-XXXX-XXXX`) stores first names, word lists, pronunciation fixes and spelling results. Anyone with the code can read and change that data, so keep it private.
 - A **list code** (`LIST-XXXX-XXXX`) stores a list name and its words. Anyone with the code can read it.
+- A **team code** (`TEAM-XXXX-XXXX`) stores the league name, team names, and for each member a first name, avatar, team and honey totals.
+- A **battle code** (5 characters) stores the battle words and each player's first name, avatar and score.
 - Families that never turn on sync or share a list send nothing to the database.
 - The hosted app at `raghavakattamudi.github.io/SpellHive` stores this data in the maintainer's Firebase project.
 
@@ -58,7 +64,6 @@ Sync and list sharing use a Firebase Firestore database through its REST API. Th
 - Recorded parent pronunciations
 - Installable offline app (PWA)
 - Countdown to competition day
-- Shareable word lists
 
 ## License
 
