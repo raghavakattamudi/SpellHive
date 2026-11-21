@@ -24,5 +24,39 @@ service cloud.firestore {
         && request.resource.data.words.size() < 100000
         && request.resource.data.updated is int;
     }
+
+    // Team leagues. The name and team names are fixed at creation.
+    // Each kid writes only their own entry (one field per update), so kids never overwrite each other.
+    match /leagues/{code} {
+      allow get: if true;
+      allow create: if code.matches('^[A-Z0-9]{8}$')
+        && request.resource.data.keys().hasOnly(['name', 't0', 't1', 'created'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 40
+        && request.resource.data.t0 is string && request.resource.data.t0.size() <= 24
+        && request.resource.data.t1 is string && request.resource.data.t1.size() <= 24
+        && request.resource.data.created is int;
+      allow update: if request.resource.data.name == resource.data.name
+        && request.resource.data.t0 == resource.data.t0
+        && request.resource.data.t1 == resource.data.t1
+        && request.resource.data.created == resource.data.created
+        && request.resource.data.diff(resource.data).affectedKeys().size() == 1
+        && request.resource.data.size() <= 44;
+    }
+
+    // Live Bee Battle rooms. Words and host are fixed; each player writes only their own score entry.
+    match /rooms/{code} {
+      allow get: if true;
+      allow create: if code.matches('^[A-Z0-9]{5}$')
+        && request.resource.data.keys().hasOnly(['host', 'hn', 'words', 'state', 'created', 'start'])
+        && request.resource.data.words is string && request.resource.data.words.size() < 20000
+        && request.resource.data.state == 'lobby'
+        && request.resource.data.created is int;
+      allow update: if request.resource.data.host == resource.data.host
+        && request.resource.data.words == resource.data.words
+        && request.resource.data.created == resource.data.created
+        && request.resource.data.state in ['lobby', 'play']
+        && request.resource.data.diff(resource.data).affectedKeys().size() <= 2
+        && request.resource.data.size() <= 40;
+    }
   }
 }
