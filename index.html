@@ -323,7 +323,8 @@ function reEsc(t){ return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 // Hide the word (and endings like -s or -ed) so a clue or sentence never gives the spelling away.
 function hideWord(text, w){
   const forms = [...new Set([w, fold(w)])].sort((a,b) => b.length - a.length).map(reEsc).join('|');
-  return String(text).replace(new RegExp('(' + forms + ')[a-z]*', 'gi'), '_____');
+  // Match only at the start of a word, so a short word like "ran" never blanks part of "orange".
+  return String(text).replace(new RegExp('(^|[^a-z\u00c0-\u024f])(' + forms + ')[a-z]*', 'gi'), (m, pre) => pre + '_____');
 }
 function hasBlank(w){ const ex = exampleOf(w); return !!ex && hideWord(ex, w) !== ex; }
 function mWords(p){ return activeWords(p).filter(w => meaningOf(w)); }
