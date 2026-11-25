@@ -14,8 +14,9 @@ No accounts and no tracking. Everything runs in the browser, and progress stays 
 - **Solo games**: Beat the Clock (60 seconds), Survival (3 hearts), Unscramble (letter tiles), Daily Honey (the same 5 words for everyone on the same lists, once a day), Boss Word (your most-missed word; hit it on 3 days to beat it). Games pick hard words first, and a miss in a game makes the word a trouble word again.
 - **Play with friends**: Pass-and-Play Bee on one phone (a miss is out, unless everyone misses), Live Bee Battle (same words at the same time on each phone, with a live scoreboard), and Team League (kids join with a code, pick a team, and their honey for the week adds up for the team).
 - **Gamified**: honey, daily goal ring, streak, levels, badges, a honey shop for hats and new looks (spending never lowers levels or team scores), sounds and celebrations, and a hive that fills as words are mastered.
+- **Learn the meaning**: Meaning Match (pick what a word means), Clue Bee (hear a meaning, spell the word) and Fill the Sentence (pick the word that fits). Meaning progress and ⭐ stars are kept apart from spelling: they never change honey, levels, streaks, goals, mastery or team scores.
 - **Grown-ups lock**: settings, reports and list deletion sit behind a quick multiplication question.
-- **Grown-ups area**: add word lists, see hardest words and actual misspellings, fix pronunciations ("Say it as"), override chunks, back up and restore progress.
+- **Grown-ups area**: add word lists, see hardest words and actual misspellings, fix pronunciations ("Say it as"), override chunks, add word meanings (one at a time or many at once as `word | meaning | example sentence`), back up and restore progress.
 - **Multiple players** per device.
 - **Shared lists**: share a list you created and get a list code (or link). Other families enter the code to practice the same words. Shared lists cannot be edited after sharing.
 - **Sync across phones** (optional): turn on sync to get a family code, then enter it on another phone. Players, lists and progress merge per word, and practice works offline.
@@ -38,8 +39,9 @@ Report bugs with the bug report issue template. Pull requests run `node scripts/
 
 Sync and list sharing use a Firebase Firestore database through its REST API. There is no login.
 
-- A **family code** (`HIVE-XXXX-XXXX`) stores first names, word lists, pronunciation fixes and spelling results. Anyone with the code can read and change that data, so keep it private.
-- A **list code** (`LIST-XXXX-XXXX`) stores a list name and its words. Anyone with the code can read it.
+- A **family code** (`HIVE-XXXX-XXXX`) stores first names, word lists, pronunciation fixes, word meanings, and spelling and meaning results. Anyone with the code can read and change that data, so keep it private.
+- A **list code** (`LIST-XXXX-XXXX`) stores a list name, its words and any meanings added before sharing. Anyone with the code can read it.
+- Word meanings are entered in the app. None are bundled in this repository.
 - A **team code** (`TEAM-XXXX-XXXX`) stores the league name, team names, and for each member a first name, avatar, team and honey totals.
 - A **battle code** (5 characters) stores the battle words and each player's first name, avatar and score.
 - Families that never turn on sync or share a list send nothing to the database.

@@ -13,11 +13,12 @@ service cloud.firestore {
         && request.resource.data.updated is int;
     }
 
-    // Shared word lists. Created once, never changed or deleted from the app.
+    // Shared word lists, with optional meanings. Created once, never changed or deleted from the app.
     match /lists/{code} {
       allow get: if true;
       allow create: if code.matches('^[A-Z0-9]{8}$')
-        && request.resource.data.keys().hasOnly(['name', 'words', 'updated'])
+        && request.resource.data.keys().hasOnly(['name', 'words', 'updated', 'means'])
+        && (!('means' in request.resource.data) || (request.resource.data.means is string && request.resource.data.means.size() < 400000))
         && request.resource.data.name is string
         && request.resource.data.name.size() <= 60
         && request.resource.data.words is string
