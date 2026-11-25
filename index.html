@@ -81,6 +81,14 @@ label{font-weight:700;display:flex;flex-direction:column;gap:4px}
 .speaker:active{transform:translateY(4px);box-shadow:0 1px 0 var(--ink)}
 .speaker svg{width:52px;height:52px}
 .answer{width:100%;max-width:440px;text-align:center;font-family:var(--display);font-size:1.7rem;letter-spacing:.08em;padding:10px}
+.choices{display:grid;gap:10px;width:100%;max-width:520px}
+.choice{background:var(--card);border:2px solid var(--ink);border-radius:14px;padding:12px 14px;text-align:left;font-size:1.05rem;cursor:pointer;box-shadow:0 3px 0 var(--ink)}
+.choice:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+.choice.word{text-align:center;font-family:var(--display);font-size:1.3rem}
+.clue{font-size:1.25rem;line-height:1.45;max-width:520px}
+.meaning{max-width:520px;text-align:left}
+.meaning b{display:block;font-family:var(--display)}
+.mtable td input{width:100%;min-width:160px}
 .panel{background:var(--paper);border:2px dashed var(--line);border-radius:12px;padding:10px 14px;max-width:520px}
 .tag{background:var(--ink);color:var(--paper);border-radius:999px;padding:2px 12px;font-size:.85rem;font-weight:700}
 .big{font-family:var(--display);font-size:2.2rem;font-weight:800}
@@ -263,6 +271,8 @@ function logDay(p, d){
   if(!S.dev) S.dev = uid();
   const days = p.days || (p.days = {}), b = days[today()] || (days[today()] = {}), r = b[S.dev] || (b[S.dev] = {sec:0, ok:0, bad:0, n:0, pts:0, ts:0});
   r.sec += d.sec || 0; r.ok += d.ok || 0; r.bad += d.bad || 0; r.n += d.n || 0; r.pts = (r.pts || 0) + (d.pts || 0); r.ts = Date.now();
+  // Meaning games log their own fields, so spelling time, correct, mistakes, goals and team honey never change.
+  if(d.msec || d.mok || d.mbad){ r.msec = (r.msec || 0) + (d.msec || 0); r.mok = (r.mok || 0) + (d.mok || 0); r.mbad = (r.mbad || 0) + (d.mbad || 0); }
   const keys = Object.keys(days); if(keys.length > 400) delete days[keys.sort()[0]];
 }
 function tick(){ const now = Date.now(), sec = Math.min(IDLE_CAP, Math.max(0, Math.round((now - sess.mark) / 1000))); sess.mark = now; return sec; }
@@ -300,6 +310,64 @@ function lcs(a,b){
   return [ma,mb];
 }
 function mask(text,w){ return text.replace(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),'_____'); }
+
+/* ---------- word meanings ----------
+   Meanings are entered by grown-ups (or arrive with a shared list) and live in the family's own data, never in this code.
+   Meaning progress is kept in p.mw and p.stars. It never touches spelling words, points, levels, streaks, goals or team honey. */
+const M_TXT = 300;
+function cleanTxt(v){ return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, M_TXT); }
+function listMean(w){ for(const l of S.lists){ const m = l.means && l.means[w]; if(m && m[0]) return m; } return null; }
+function meaningOf(w){ const f = S.fix[w]; if(f && f.mean) return f.mean; const m = listMean(w); return m ? m[0] : ''; }
+function exampleOf(w){ const f = S.fix[w]; if(f && f.ex) return f.ex; const m = listMean(w); return m && m[1] ? m[1] : ''; }
+function reEsc(t){ return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+// Hide the word (and endings like -s or -ed) so a clue or sentence never gives the spelling away.
+function hideWord(text, w){
+  const forms = [...new Set([w, fold(w)])].sort((a,b) => b.length - a.length).map(reEsc).join('|');
+  return String(text).replace(new RegExp('(' + forms + ')[a-z]*', 'gi'), '_____');
+}
+function hasBlank(w){ const ex = exampleOf(w); return !!ex && hideWord(ex, w) !== ex; }
+function mWords(p){ return activeWords(p).filter(w => meaningOf(w)); }
+function mBuckets(p){
+  const t = today(), mw = p.mw || {}, b = {miss:[], due:[], fresh:[], rest:[], known:0, total:0};
+  for(const w of mWords(p)){
+    b.total++;
+    const r = mw[w];
+    if(!r){ b.fresh.push(w); continue; }
+    if(r.box >= 4) b.known++;
+    if(r.box === 1) b.miss.push(w); else if(r.due <= t) b.due.push(w); else b.rest.push(w);
+  }
+  return b;
+}
+function mQueue(p, n, need){
+  const b = mBuckets(p);
+  let q = shuffle(b.miss).concat(shuffle(b.due), shuffle(b.fresh), shuffle(b.rest));
+  if(need) q = q.filter(need);
+  return q.slice(0, n);
+}
+function mRecord(p, w, ok, firstTry){
+  const mw = p.mw || (p.mw = {}), r = mw[w] || (mw[w] = {box:1, due:'', ok:0, bad:0});
+  r.ts = Date.now(); p.t = r.ts;
+  if(ok){ r.ok++; if(firstTry && (!r.due || r.due <= today())){ r.box = Math.min(5, r.box + 1); r.due = today(GAP[r.box]); } }
+  else { r.bad++; r.box = 1; r.due = today(); }
+}
+function mTotals(p, days){ const t = {sec:0, ok:0, bad:0}; for(const day of days){ const b = (p.days || {})[day] || {}; for(const k in b){ t.sec += b[k].msec || 0; t.ok += b[k].mok || 0; t.bad += b[k].mbad || 0; } } return t; }
+// Import lines: word | meaning | example sentence  (a tab or " - " also works between the parts)
+function parseMeanings(text){
+  const rows = [], bad = [];
+  String(text).split(/\r?\n/).forEach((line, i) => {
+    const t = line.trim(); if(!t || t.startsWith('#')) return;
+    let parts = t.includes('|') ? t.split('|') : t.includes('\t') ? t.split('\t') : t.includes(' - ') ? [t.slice(0, t.indexOf(' - ')), t.slice(t.indexOf(' - ') + 3)] : null;
+    if(!parts || parts.length < 2 || !norm(parts[0]) || !cleanTxt(parts[1])){ bad.push(i + 1); return; }
+    rows.push({w:norm(parts[0]), mean:cleanTxt(parts[1]), ex:cleanTxt(parts.slice(2).join(' '))});
+  });
+  return {rows, bad};
+}
+function allWordsByFold(){ const m = new Map(); for(const l of S.lists) for(const w of l.words) if(!m.has(fold(w))) m.set(fold(w), w); return m; }
+function meansForList(l){
+  const out = {};
+  for(const w of l.words){ const mean = meaningOf(w); if(mean) out[w] = exampleOf(w) ? [mean, exampleOf(w)] : [mean]; }
+  return out;
+}
 
 /* ---------- speech + dictionary ---------- */
 const dict = {};
@@ -395,6 +463,12 @@ function mergeProfile(x, y){
     r.spent = Math.max(x.spent||0, y.spent||0);
     if(x.boss && y.boss && x.boss.wk === y.boss.wk && x.boss.w === y.boss.w) r.boss = Object.assign({}, n.boss, {hits:[...new Set([...x.boss.hits, ...y.boss.hits])]});
   }
+  r.mw = {};
+  const xm = x.mw || {}, ym = y.mw || {};
+  for(const w of new Set([...Object.keys(xm), ...Object.keys(ym)])){
+    const a = xm[w], b = ym[w], rec = !a ? b : !b ? a : ((b.ts||0) > (a.ts||0) ? b : a);
+    if((rec.ts||0) >= ra) r.mw[w] = rec;
+  }
   r.words = {};
   const xw = x.words || {}, yw = y.words || {};
   for(const w of new Set([...Object.keys(xw), ...Object.keys(yw)])){
@@ -443,11 +517,18 @@ async function addSharedList(code){
       const doc = await cloudGet('lists', code);
       if(!doc){ V.msg = 'No list uses that code. Check it and try again.'; return; }
       l = {id:'s_'+code, name:String(doc.name || 'Shared list').slice(0,60), kind:'shared', code, t:Date.now(), words:parseWords(JSON.parse(doc.words).join('\n'))};
+      if(doc.means){
+        try{
+          const m = JSON.parse(doc.means), ws = new Set(l.words), means = {};
+          for(const w in m) if(ws.has(w) && Array.isArray(m[w]) && cleanTxt(m[w][0])) means[w] = m[w][1] ? [cleanTxt(m[w][0]), cleanTxt(m[w][1])] : [cleanTxt(m[w][0])];
+          if(Object.keys(means).length) l.means = means;
+        }catch(e){}
+      }
       S.lists.push(l);
     }
     const p = prof();
     if(p){ p.listId = l.id; p.t = Date.now(); V.view = 'home'; } else V.defaultList = l.id;
-    V.msg = `Added “${l.name}” with ${l.words.length} words.`;
+    V.msg = `Added “${l.name}” with ${l.words.length} words` + (l.means ? ` and ${Object.keys(l.means).length} meanings.` : '.');
     save();
   }catch(e){ V.msg = cloudErr(e); }
 }
@@ -497,7 +578,8 @@ const MODES = {
   boss:{name:'Boss Word', icon:'👾'}, pass:{name:'Pass-and-Play Bee', icon:'👫'},
   clock:{name:'Beat the Clock', icon:'⏱️', lite:true}, survival:{name:'Survival', icon:'❤️', lite:true},
   daily:{name:'Daily Honey', icon:'📅', lite:true}, unscramble:{name:'Unscramble', icon:'🔤', lite:true},
-  battle:{name:'Live Bee Battle', icon:'⚡', lite:true}
+  battle:{name:'Live Bee Battle', icon:'⚡', lite:true},
+  mmatch:{name:'Meaning Match', icon:'🧩', meaning:true}, mclue:{name:'Clue Bee', icon:'🕵️', meaning:true}, mfill:{name:'Fill the Sentence', icon:'✏️', meaning:true}
 };
 // Honey is the points total. Spending honey in the shop never lowers points, levels or team scores.
 function honey(p){ return Math.max(0, (p.points||0) - (p.spent||0)); }
@@ -616,6 +698,7 @@ function award(id, pl){ const p = pl || prof(); if(!p.badges.includes(id)){ p.ba
 function submit(){
   if(!sess) return;
   if(sess.mode === 'pass') checkPass();
+  else if(MODES[sess.mode].meaning) mCheck(sess.attempt);
   else if(MODES[sess.mode].lite) checkLite();
   else check();
 }
@@ -749,6 +832,108 @@ function finish(){
   const good = sess.newBadges.length || sess.newBest || sess.bossBeaten || (m==='bee' && !sess.out) || (sess.right && !sess.wrong) || (m==='daily' && sess.right >= 4);
   if(good){ confetti(); snd('win'); } else snd('tap');
   leaguePush(p);
+}
+
+/* ---------- meaning games: Meaning Match, Clue Bee, Fill the Sentence ---------- */
+function mStart(mode){
+  const p = prof(), all = mWords(p);
+  if(!all.length){ V.msg = 'None of the words in your lists have meanings yet. Ask a grown-up to add them in the grown-ups area.'; render(); return; }
+  if(mode !== 'mclue' && all.length < 4){ V.msg = `This game needs at least 4 words with meanings. Your lists have ${all.length}. Try Clue Bee.`; render(); return; }
+  const q = mQueue(p, Math.min(cap(p.size), all.length), mode === 'mfill' ? hasBlank : null);
+  if(!q.length){ V.msg = 'None of these words have an example sentence yet. Try Meaning Match or Clue Bee.'; render(); return; }
+  V.msg = ''; stopClock();
+  sess = {mode, q:q.map(w => ({w, retry:false})), i:0, pts:0, stars:0, right:0, wrong:0, missed:[], run:0, stage:'ask', attempt:'', panel:null, newBadges:[], tries:{}, mark:Date.now(), flash:'', last:''};
+  mSetup(); V.view = 'play'; render(); mSay();
+}
+function mSetup(){
+  const w = sess.q[sess.i].w, pool = shuffle(mWords(prof()).filter(x => x !== w)), picks = [], seen = new Set([sess.mode === 'mmatch' ? meaningOf(w) : w]);
+  sess.attempt = ''; sess.panel = null; sess.last = '';
+  if(sess.mode === 'mclue'){ sess.choices = null; return; }
+  for(const x of pool){ if(picks.length >= 3) break; const k = sess.mode === 'mmatch' ? meaningOf(x) : x; if(seen.has(k)) continue; seen.add(k); picks.push(x); }
+  sess.choices = shuffle([w].concat(picks));
+}
+function mSay(){
+  const w = sess.q[sess.i].w; sayTok++; quiet();
+  if(sess.mode === 'mmatch') sayWord(w);
+  else if(sess.mode === 'mclue') tts(hideWord(meaningOf(w), w).replace(/_____/g, 'blank'), 0.85);
+  else tts(hideWord(exampleOf(w), w).replace(/_____/g, 'blank'), 0.85);
+}
+function mCheck(ans){
+  const it = sess.q[sess.i], w = it.w, p = prof();
+  if(!norm(ans)) return;
+  const ok = sess.mode === 'mclue' ? fold(ans) === fold(w) : ans === w, first = !it.retry && !sess.missed.includes(w);
+  mRecord(p, w, ok, first);
+  logDay(p, {msec:tick(), mok:ok && first ? 1 : 0, mbad:!ok && first ? 1 : 0});
+  if(ok){
+    sess.run++;
+    if(first){ sess.right++; sess.stars++; p.stars = (p.stars || 0) + 1; }
+    sess.flash = first ? 'Correct! +1 ⭐' : 'Correct!';
+    snd('ok'); save(); mNext();
+  } else {
+    sess.wrong++; sess.run = 0; sess.last = ans; sess.flash = '';
+    if(!sess.missed.includes(w)){ sess.missed.push(w); sess.q.splice(Math.min(sess.q.length, sess.i + 3), 0, {w, retry:true}); }
+    sess.stage = 'mlearn'; sayTok++; quiet(); snd('bad'); save(); render();
+  }
+}
+function mNext(){
+  if(++sess.i >= sess.q.length){ mFinish(); return; }
+  sess.stage = 'ask'; mSetup(); render(); mSay();
+}
+function mFinish(){
+  const p = prof();
+  p.t = Date.now(); logDay(p, {msec:tick()});
+  sess.stage = 'done'; quiet(); save(); render();
+  if(sess.right && !sess.wrong){ confetti(); snd('win'); } else snd('tap');
+}
+function vMeaning(){
+  const m = sess.mode, M = MODES[m], it = sess.q[Math.min(sess.i, sess.q.length - 1)], w = it.w, p = prof();
+  const topbar = sess.stage === 'done' ? '' : `<div class="bar"><button class="link" data-act="quit">✕ Quit</button><span>${M.icon} Word ${sess.i + 1} of ${sess.q.length}</span><span class="stat">⭐ +${sess.stars}</span></div>
+    <div class="prog"><i style="width:${Math.round(sess.i / sess.q.length * 100)}%"></i></div>`;
+  const flash = sess.flash ? `<p class="flash good pop">${esc(sess.flash)}</p>` : '', again = it.retry ? '<span class="tag">Second chance</span>' : '';
+  let body;
+  if(sess.stage === 'ask' && m === 'mmatch'){
+    body = `<section class="card center">${flash}${again}
+      <p class="muted">What does this word mean?</p>
+      <p class="spell">${esc(w)}</p>
+      <button class="chip" data-act="msay">🔊 Hear it</button>
+      <div class="choices">${sess.choices.map((c, i) => `<button class="choice" data-act="mpick" data-i="${i}">${esc(hideWord(meaningOf(c), c))}</button>`).join('')}</div>
+    </section>`;
+  } else if(sess.stage === 'ask' && m === 'mfill'){
+    body = `<section class="card center">${flash}${again}
+      <p class="muted">Which word fills the blank?</p>
+      <p class="clue">${esc(hideWord(exampleOf(w), w))}</p>
+      <button class="chip" data-act="msay">🔊 Hear the sentence</button>
+      <div class="choices">${sess.choices.map((c, i) => `<button class="choice word" data-act="mpick" data-i="${i}">${esc(c)}</button>`).join('')}</div>
+    </section>`;
+  } else if(sess.stage === 'ask'){
+    body = `<section class="card center">${flash}${again}
+      <p class="muted">Which word means this? Spell it.</p>
+      <p class="clue">${esc(hideWord(meaningOf(w), w))}</p>
+      <div class="row"><button class="chip" data-act="msay">🔊 Hear the clue</button>${exampleOf(w) ? '<button class="chip" data-act="mhint">💬 Sentence hint</button>' : ''}</div>
+      ${sess.panel ? `<p class="panel" aria-live="polite">${esc(sess.panel)}</p>` : ''}
+      <input id="answer" ${INPUT_ATTRS} placeholder="Type the word" value="${esc(sess.attempt)}">
+      <button class="btn" data-act="check">Check ✓</button>
+    </section>`;
+  } else if(sess.stage === 'mlearn'){
+    body = `<section class="card center">
+      <p class="big badc">Not quite. Here’s the answer.</p>
+      ${m === 'mclue' && sess.last ? diffHTML(sess.last, w) : `<p class="spell">${esc(w)}</p>`}
+      <div class="meaning panel"><b>Meaning</b>${esc(meaningOf(w))}${exampleOf(w) ? `<b>Example</b>${esc(exampleOf(w))}` : ''}</div>
+      <p class="muted">This word comes back in a moment so you can try again.</p>
+      <div class="row"><button class="chip" data-act="say">Hear the word</button></div>
+      <button class="btn" data-act="mgotit" data-focus>Got it →</button>
+    </section>`;
+  } else {
+    const b = mBuckets(p);
+    body = `<section class="card center">
+      ${mascot(sess.missed.length ? 'Missed meanings come back first next time.' : 'Every meaning right on the first try. Amazing!')}
+      <p class="big pop">${M.icon} ${sess.right} of ${sess.q.filter(x => !x.retry).length} right first try</p>
+      <div class="row"><span class="stat">⭐ +${sess.stars} stars</span><span class="stat">🧠 ${b.known} of ${b.total} meanings known</span></div>
+      ${sess.missed.length ? `<p>Meanings to learn: <b>${sess.missed.map(esc).join(', ')}</b></p>` : ''}
+      <div class="row"><button class="btn" data-act="go" data-v="games" data-focus>Done</button><button class="btn alt" data-act="mgame" data-mode="${m}">Play again</button></div>
+    </section>`;
+  }
+  return header(`<span>${ava(p)} <b>${esc(p.name)}</b></span><span class="stat">${M.icon} ${M.name}</span>`) + `<main class="wrap">${topbar}${body}</main>`;
 }
 
 /* ---------- pass-and-play bee: one phone, take turns, a miss is out ---------- */
@@ -958,7 +1143,7 @@ function header(right){
 }
 function topBar(){
   const p = prof();
-  return header(`<button class="me-btn" data-act="go" data-v="profiles" aria-label="Switch player">${ava(p)} <b>${esc(p.name)}</b></button><span class="stat" title="Honey">🍯 ${honey(p)}</span><span class="stat" title="Day streak">🔥 ${p.streak}</span><button class="icon-btn" data-act="mute" aria-label="${S.mute?'Turn sound on':'Turn sound off'}">${S.mute?'🔇':'🔊'}</button>`);
+  return header(`<button class="me-btn" data-act="go" data-v="profiles" aria-label="Switch player">${ava(p)} <b>${esc(p.name)}</b></button><span class="stat" title="Honey">🍯 ${honey(p)}</span><span class="stat" title="Day streak">🔥 ${p.streak}</span>${p.stars ? `<span class="stat" title="Meaning stars">⭐ ${p.stars}</span>` : ''}<button class="icon-btn" data-act="mute" aria-label="${S.mute?'Turn sound on':'Turn sound off'}">${S.mute?'🔇':'🔊'}</button>`);
 }
 function tabs(){
   const t = [['home','🏠','Practice'],['games','🎮','Games'],['hive','🍯','My Hive'],['team','🏆','Team']];
@@ -1012,7 +1197,7 @@ function vHome(){
   </main>` + tabs();
 }
 function vGames(){
-  const p = prof(), best = p.best || {}, boss = activeWords().length ? bossFor(p) : null, dailyDone = p.daily && p.daily.day === today();
+  const p = prof(), best = p.best || {}, boss = activeWords().length ? bossFor(p) : null, dailyDone = p.daily && p.daily.day === today(), mb = mBuckets(p);
   const hearts = boss ? '🍯'.repeat(boss.hits.length) + '🤍'.repeat(BOSS_HITS - boss.hits.length) : '';
   const card = (act, mode, icon, name, line, extra, cls) => `<button class="game ${cls||''}" data-act="${act}" ${act==='go' ? `data-v="${mode}"` : `data-mode="${mode}"`}><i aria-hidden="true">${icon}</i><b>${name}</b><span>${line}</span>${extra ? `<small>${extra}</small>` : ''}</button>`;
   return topBar() + `<main class="wrap">
@@ -1025,6 +1210,13 @@ function vGames(){
       ${card('game','daily','📅','Daily Honey','5 new words every day. Double honey!', dailyDone ? `✅ Today: ${p.daily.s} of ${p.daily.n}` : 'Ready today', dailyDone ? 'done' : '')}
       ${boss ? card('game','boss','👾','Boss Word','Your toughest word this week. Hit it on 3 different days to beat it!', `Boss: ${hearts}`, boss.hits.length >= BOSS_HITS ? 'done' : '') : ''}
     </div>
+    <h2>Learn the meaning</h2>
+    ${mb.total ? `<p class="muted">🧠 ${mb.known} of ${mb.total} meanings known${mb.miss.length ? `, ${plural(mb.miss.length, 'to practice')} first` : ''}. Meaning games give ⭐ stars and never change your honey or spelling score.</p>` : '<p class="muted">Meaning games start once a grown-up adds meanings for your words.</p>'}
+    <div class="games">
+      ${card('mgame','mmatch','🧩','Meaning Match','See a word. Pick what it means.')}
+      ${card('mgame','mclue','🕵️','Clue Bee','Hear what a word means. Spell the word.')}
+      ${card('mgame','mfill','✏️','Fill the Sentence','Pick the word that fits the sentence.')}
+    </div>
     <h2>Play with friends</h2>
     <div class="games">
       ${card('go','passsetup','👫','Pass-and-Play Bee','Take turns on this phone. Miss and you’re out. Last speller wins!')}
@@ -1034,7 +1226,7 @@ function vGames(){
   </main>` + tabs();
 }
 function vHive(){
-  const p = prof(), b = buckets(), words = activeWords();
+  const p = prof(), b = buckets(), words = activeWords(), mb = mBuckets(p);
   const cells = words.map(w => { const r = p.words[w]; return `<i class="cell ${r?'b'+r.box:''}"></i>`; }).join('');
   const learning = b.total - b.mastered - b.fresh.length - b.miss.length;
   const nextL = LEVELS.find(([min]) => min > p.points), prevMin = [...LEVELS].reverse().find(([min]) => min <= p.points)[0];
@@ -1068,6 +1260,11 @@ function vHive(){
         <span><i class="cell b4"></i>Mastered ${b.mastered}</span>
       </div>
     </section>
+    ${mb.total ? `<section class="card">
+      <div class="bar"><h3>🧠 Meanings I know</h3><span class="stat">⭐ ${p.stars || 0} stars</span></div>
+      <p>${mb.known} of ${mb.total} meanings known</p>
+      <div class="prog"><i style="width:${Math.round(mb.known / mb.total * 100)}%"></i></div>
+    </section>` : ''}
     <section class="card">
       <div class="bar"><h3>Honey shop</h3><span class="stat">🍯 ${honey(p)} to spend</span></div>
       <p class="muted">Spending honey never lowers your level or your team’s score.</p>
@@ -1265,6 +1462,7 @@ function askCard(it, label){
 }
 function vPlay(){
   if(sess.mode === 'pass') return vPass();
+  if(MODES[sess.mode].meaning) return vMeaning();
   const m = sess.mode, M = MODES[m], it = sess.q[Math.min(sess.i, sess.q.length-1)], w = it.w;
   let status;
   if(m==='clock') status = `<span class="clock" id="clock">${Math.max(0, Math.ceil(((sess.pausedAt || Date.now()) <= sess.endAt ? sess.endAt - (sess.pausedAt || Date.now()) : 0)/1000))}s</span><span class="stat">✓ ${sess.right}</span>`;
@@ -1303,6 +1501,7 @@ function vPlay(){
       <p class="big good pop">${m==='boss' && sess.bossHit ? (sess.bossBeaten ? '💥 Boss beaten! +25 honey' : '💥 Boss hit! +6 honey') : 'Correct! +1 honey'}</p>
       <p class="spell">${esc(w)}</p>
       ${fold(w) !== w ? '<p class="muted">This word is written with an accent mark. Plain letters count as correct.</p>' : ''}
+      ${meaningOf(w) ? `<p class="panel">📖 ${esc(meaningOf(w))}</p>` : ''}
       <button class="btn" data-act="next" data-focus>${sess.i+1>=sess.q.length ? 'Finish' : 'Next word →'}</button>
     </section>`;
   } else if(sess.stage==='study'){
@@ -1311,6 +1510,7 @@ function vPlay(){
       ${diffHTML(sess.last, w)}
       <p class="muted">Highlighted letters are the ones to remember. Read it in chunks:</p>
       <div class="chunks">${syll(w).map(s => `<span>${esc(s)}</span>`).join('')}</div>
+      ${meaningOf(w) ? `<p class="panel">📖 ${esc(meaningOf(w))}</p>` : ''}
       <div class="row">
         <button class="chip" data-act="say">Hear it</button>
         <button class="chip" data-act="slow">Hear it slowly</button>
@@ -1399,6 +1599,7 @@ function vParent(){
     <div class="bar"><h2>Grown-ups</h2><button class="btn small alt" data-act="go" data-v="home">Back to the hive</button></div>
     ${note()}
     ${reportCard()}
+    ${meaningsCard()}
     ${listsCard()}
     ${syncCard()}
     <section class="card">
@@ -1431,39 +1632,73 @@ function vParent(){
     </section>
   </main>`;
 }
-function listMeta(l){ return (l.kind==='builtin' ? 'Built in' : l.kind==='shared' ? 'Shared list' : 'Your list') + ', ' + l.words.length + ' words'; }
+function listMeta(l){ const nm = Object.keys(meansForList(l)).length; return (l.kind==='builtin' ? 'Built in' : l.kind==='shared' ? 'Shared list' : 'Your list') + ', ' + l.words.length + ' words' + (nm ? `, ${nm} with meanings` : ''); }
 function reportCard(){
   const week = lastDays(7), cur = prof();
   const rows = S.profiles.map(p => {
     const w = rangeTotals(p, week), all = rangeTotals(p, Object.keys(p.days || {}));
-    let ok = 0, bad = 0, mastered = 0;
+    let ok = 0, bad = 0, mastered = 0, mok = 0, mbad = 0, known = 0;
     for(const k in p.words){ const r = p.words[k]; ok += r.ok; bad += r.bad; if(r.box >= 4) mastered++; }
+    for(const k in p.mw || {}){ const r = p.mw[k]; mok += r.ok; mbad += r.bad; if(r.box >= 4) known++; }
+    const mt = mTotals(p, week);
     const last = Object.keys(p.days || {}).sort().pop() || p.lastDay || '';
-    return `<tr><td><b>${p.avatar} ${esc(p.name)}</b></td><td class="n">${fmtTime(w.sec)}</td><td class="n">${w.active} of 7</td><td class="n">${fmtTime(all.sec)}</td><td class="n">${ok}</td><td class="n">${bad}</td><td class="n">${pct(ok, bad)}</td><td class="n">${mastered}</td><td class="n">${p.streak}</td><td>${last ? esc(niceDay(last)) : 'Not yet'}</td></tr>`;
+    return `<tr><td><b>${p.avatar} ${esc(p.name)}</b></td><td class="n">${fmtTime(w.sec)}</td><td class="n">${w.active} of 7</td><td class="n">${fmtTime(all.sec)}</td><td class="n">${ok}</td><td class="n">${bad}</td><td class="n">${pct(ok, bad)}</td><td class="n">${mastered}</td><td class="n">${p.streak}</td><td class="n">${known}</td><td class="n">${pct(mok, mbad)}</td><td class="n">${fmtTime(mt.sec)}</td><td>${last ? esc(niceDay(last)) : 'Not yet'}</td></tr>`;
   }).join('');
   const days = week.map(day => ({day, t:dayTotals(cur, day)})), max = Math.max(60, ...days.map(d => d.t.sec));
   const daily = days.map(d => `<tr><td>${esc(niceDay(d.day))}</td><td class="n">${fmtTime(d.t.sec)}</td><td><i class="meter" style="width:${Math.round(d.t.sec / max * 120)}px"></i></td><td class="n">${d.t.n}</td><td class="n">${d.t.ok}</td><td class="n">${d.t.bad}</td><td class="n">${pct(d.t.ok, d.t.bad)}</td></tr>`).join('');
   return `<section class="card">
       <h3>Practice report</h3>
-      <div class="scroll"><table><thead><tr><th>Player</th><th class="n">Time, last 7 days</th><th class="n">Days practiced</th><th class="n">Time, all</th><th class="n">Correct</th><th class="n">Mistakes</th><th class="n">Accuracy</th><th class="n">Mastered</th><th class="n">Streak</th><th>Last practiced</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="scroll"><table><thead><tr><th>Player</th><th class="n">Time, last 7 days</th><th class="n">Days practiced</th><th class="n">Time, all</th><th class="n">Correct</th><th class="n">Mistakes</th><th class="n">Accuracy</th><th class="n">Mastered</th><th class="n">Streak</th><th class="n">Meanings known</th><th class="n">Meaning accuracy</th><th class="n">Meaning time, 7 days</th><th>Last practiced</th></tr></thead><tbody>${rows}</tbody></table></div>
       <h3>${esc(cur.name)}, last 7 days</h3>
       <div class="scroll"><table><thead><tr><th>Day</th><th class="n">Time</th><th></th><th class="n">Sessions</th><th class="n">Correct</th><th class="n">Mistakes</th><th class="n">Accuracy</th></tr></thead><tbody>${daily}</tbody></table></div>
       <p class="muted">Correct and mistakes include practice and games (first tries only in practice). Time counts while a session is open, up to ${IDLE_CAP} seconds per step, and was not recorded before this report was added.</p>
     </section>`;
 }
 function niceDay(day){ const [y,m,d] = day.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'}); }
+function meaningsCard(){
+  const words = activeWords(), have = words.filter(w => meaningOf(w)).length, P = V.mprev;
+  const order = words.slice().sort((a, b) => (meaningOf(a) ? 1 : 0) - (meaningOf(b) ? 1 : 0));
+  const rows = order.map((w, i) => {
+    const f = S.fix[w] || {}, lm = listMean(w) || [];
+    return `<tr><td><b>${esc(w)}</b></td>
+      <td><input type="text" id="mean-${i}" data-chg="fix" data-k="mean" data-w="${esc(w)}" value="${esc(f.mean || '')}" placeholder="${esc(lm[0] || 'Kid-friendly meaning')}" maxlength="${M_TXT}" aria-label="Meaning of ${esc(w)}"></td>
+      <td><input type="text" id="ex-${i}" data-chg="fix" data-k="ex" data-w="${esc(w)}" value="${esc(f.ex || '')}" placeholder="${esc(lm[1] || 'Example sentence using the word')}" maxlength="${M_TXT}" aria-label="Example sentence for ${esc(w)}"></td></tr>`;
+  }).join('');
+  const prev = P ? `<div class="note" role="status">
+      <p><b>${plural(P.rows.length, 'meaning')} ready.</b> ${P.match} match words in your lists.${P.other.length ? ` ${P.other.length} match no list yet and will be kept for later: ${esc(P.other.slice(0, 12).join(', '))}${P.other.length > 12 ? '…' : ''}.` : ''}</p>
+      ${P.keep ? `<p>${plural(P.keep, 'word')} already ${P.keep === 1 ? 'has' : 'have'} a different meaning. ${P.replace ? 'They will be replaced.' : 'Their meanings will be kept; an empty example sentence will still be filled in.'}</p>` : ''}
+      ${P.bad.length ? `<p>Skipped ${plural(P.bad.length, 'line')} without a meaning (line ${P.bad.slice(0, 10).join(', ')}${P.bad.length > 10 ? '…' : ''}).</p>` : ''}
+      <div class="row"><button class="btn small" data-act="msave">Save meanings</button><button class="btn small alt" data-act="mcancel">Cancel</button></div>
+    </div>` : '';
+  return `<section class="card">
+      <h3>Word meanings</h3>
+      <p><b>${have} of ${words.length}</b> words in ${esc(listsLabel())} have a meaning. Meaning games use only those words.</p>
+      <p class="muted">Meanings are saved in this family’s data${cloudOn ? ' (synced with your family code when sync is on)' : ''}, not in the app’s code. They never change spelling scores.</p>
+      <h3>Add many at once</h3>
+      <label for="mean-import">One word per line: word | meaning | example sentence<textarea id="mean-import" spellcheck="false" placeholder="bicycle | a vehicle with two wheels that you ride by pedaling | She rode her bicycle to the park."></textarea></label>
+      <label for="mean-file">Or pick a text file<input type="file" id="mean-file" data-chg="mfile" accept=".txt,.csv,.tsv,text/plain"></label>
+      <label class="row"><input type="checkbox" id="mean-replace"> Replace meanings that are already filled in</label>
+      <div><button class="btn small" data-act="mpreview">Check before saving</button></div>
+      ${prev}
+      <h3>Edit one word</h3>
+      <p class="muted">Words without a meaning are listed first. A grey meaning came with a shared list; type over it to use your own.</p>
+      <div class="scroll"><table class="mtable"><thead><tr><th>Word</th><th>Meaning</th><th>Example sentence</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </section>`;
+}
 function listsCard(){
   const rows = S.lists.map(l => {
+    const nm = Object.keys(meansForList(l)).length, shared = l.means ? Object.keys(l.means).length : 0;
+    const reshare = cloudOn && l.kind !== 'builtin' && l.code && nm > shared ? `<button class="chip" data-act="sharelist" data-id="${l.id}">Share again with ${plural(nm, 'meaning')}</button>` : '';
     const share = l.code
-      ? `<span class="code small">${fmt('LIST', l.code)}</span><button class="chip" data-act="copy" data-text="${fmt('LIST', l.code)}">Copy code</button><button class="chip" data-act="copy" data-text="${esc(shareLink(l.code))}">Copy link</button>`
-      : (l.kind==='own' && cloudOn ? `<button class="chip" data-act="sharelist" data-id="${l.id}">Share list</button>` : '');
+      ? `<span class="code small">${fmt('LIST', l.code)}</span><button class="chip" data-act="copy" data-text="${fmt('LIST', l.code)}">Copy code</button><button class="chip" data-act="copy" data-text="${esc(shareLink(l.code))}">Copy link</button>${reshare}`
+      : (l.kind==='own' && cloudOn ? `<button class="chip" data-act="sharelist" data-id="${l.id}">Share list${nm ? ` with ${plural(nm, 'meaning')}` : ''}</button>` : '');
     const del = l.kind==='builtin' ? '' : `<button class="chip" data-act="dellist" data-id="${l.id}">${V.confirm==='list:'+l.id ? 'Tap again to delete' : 'Delete'}</button>`;
     return `<div class="lrow"><div><b>${esc(l.name)}</b><br><span class="muted">${listMeta(l)}</span></div><div class="row">${share}${del}</div></div>`;
   }).join('');
   return `<section class="card">
       <h3>Word lists</h3>
       ${rows}
-      ${cloudOn ? '<p class="muted">Sharing gives a list code other families can enter. A shared list cannot be changed afterwards. To fix a word, save a new list and share its code.</p>' : ''}
+      ${cloudOn ? '<p class="muted">Sharing gives a list code other families can enter. It includes the meanings you have added for its words. A shared list cannot be changed afterwards, so adding meanings later gives a new code. The old code keeps working without the new meanings, and progress is never lost because it is kept per word.</p>' : ''}
       <div><button class="btn small alt" data-act="go" data-v="setup">Add or pick lists</button></div>
     </section>`;
 }
@@ -1527,6 +1762,8 @@ const ACT = {
   letters(){ const w = sess.mode==='pass' ? passWord() : sess.q[sess.i].w; sayTok++; quiet(); tts(w.toUpperCase().split('').join(', '), 0.7); },
   async info(t){
     const w = sess.mode==='pass' ? passWord() : sess.q[sess.i].w, k = t.dataset.k, i = sess.i;
+    const own = k === 'def' ? meaningOf(w) : k === 'ex' ? exampleOf(w) : '';
+    if(own){ sess.panel = hideWord(own, w); render(); if(k === 'ex'){ sayTok++; quiet(); tts(sess.panel.replace(/_____/g, 'blank'), 0.85); } return; }
     sess.panel = 'Looking it up…'; render();
     const info = await getInfo(w);
     if(!sess || sess.i!==i || sess.stage!=='ask') return;
@@ -1537,6 +1774,32 @@ const ACT = {
     if(text && k==='ex'){ sayTok++; quiet(); tts(text, 0.85); }
   },
   check(){ submit(); },
+  mgame(t){ mStart(t.dataset.mode); },
+  mpick(t){ mCheck(sess.choices[+t.dataset.i]); },
+  msay(){ mSay(); },
+  mhint(){ const w = sess.q[sess.i].w; sess.panel = hideWord(exampleOf(w), w); render(); },
+  mgotit(){ mNext(); },
+  mpreview(){
+    const {rows, bad} = parseMeanings(document.getElementById('mean-import').value), replace = document.getElementById('mean-replace').checked, byFold = allWordsByFold();
+    if(!rows.length){ V.mprev = null; V.msg = 'Nothing to import. Put one word per line like this: word | meaning | example sentence'; render(); return; }
+    let match = 0, keep = 0; const other = [];
+    for(const r of rows){ const w = byFold.get(fold(r.w)); if(w){ match++; r.w = w; } else other.push(r.w); const old = meaningOf(r.w); if(old && old !== r.mean) keep++; }
+    const text = document.getElementById('mean-import').value;
+    V.mprev = {rows, bad, match, other, keep, replace}; V.msg = ''; render();
+    document.getElementById('mean-import').value = text; document.getElementById('mean-replace').checked = replace;
+  },
+  msave(){
+    const P = V.mprev; if(!P) return;
+    let n = 0; const now = Date.now();
+    for(const r of P.rows){
+      const f = S.fix[r.w] || (S.fix[r.w] = {});
+      if(f.mean && f.mean !== r.mean && !P.replace){ if(r.ex && !f.ex){ f.ex = r.ex; f.t = now; } continue; }
+      f.mean = r.mean; if(r.ex) f.ex = r.ex; else if(P.replace) delete f.ex;
+      f.t = now; n++;
+    }
+    V.mprev = null; V.msg = `Saved ${plural(n, 'meaning')}.` + (S.sync ? ' They will sync to your other phones.' : ''); save(); render();
+  },
+  mcancel(){ V.mprev = null; render(); },
   next(){ next(); },
   gotit(){ gotIt(); },
   cover(){ sess.stage='cover'; sess.attempt=''; quiet(); render(); },
@@ -1601,12 +1864,14 @@ const ACT = {
     const l = S.lists.find(x => x.id === t.dataset.id); if(!l) return;
     busy();
     try{
-      const code = newCode();
-      await cloudPut('lists', code, {name:l.name, words:JSON.stringify(l.words), updated:Date.now()}, true);
-      l.code = code; l.t = Date.now();
-      V.msg = `“${l.name}” is shared. Send the list code or link to other families.`;
+      const code = newCode(), means = meansForList(l), n = Object.keys(means).length, again = !!l.code, doc = {name:l.name, words:JSON.stringify(l.words), updated:Date.now()};
+      if(n) doc.means = JSON.stringify(means);
+      await cloudPut('lists', code, doc, true);
+      l.code = code; l.t = Date.now(); if(n) l.means = means;
+      V.msg = again ? `New list code for “${l.name}” with ${plural(n, 'meaning')}. Send it to families who want the meanings. The old code still works, without them.`
+        : `“${l.name}” is shared${n ? ` with ${plural(n, 'meaning')}` : ''}. Send the list code or link to other families.`;
       save();
-    }catch(e){ V.msg = cloudErr(e); }
+    }catch(e){ V.msg = /403/.test(String(e && e.message)) && meansForList(l) && Object.keys(meansForList(l)).length ? 'Sharing with meanings needs the updated Firebase rules. Publish firestore.rules from the repository in the Firebase console, then try again.' : cloudErr(e); }
     render();
   },
   async joinlist(){
@@ -1635,7 +1900,7 @@ const ACT = {
   joincancel(){ V.join = null; V.msg = ''; render(); },
   async syncnow(){ await syncNow(); V.msg = V.sync==='ok' ? 'Synced.' : 'Sync did not finish. Check the internet connection and try again.'; render(); },
   syncoff(){ twoStep('syncoff', () => { delete S.sync; V.sync = ''; V.msg = 'Sync is off on this phone. Everything stays saved here.'; saveLocal(); render(); }); },
-  reset(){ twoStep('reset', () => { const p = prof(); p.resetAt = p.t = Date.now(); p.words={}; p.days={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; p.spent=0; p.owned=[]; p.hat=''; p.best={}; p.daily=null; p.boss=null; V.msg='Progress erased.'; save(); render(); }); },
+  reset(){ twoStep('reset', () => { const p = prof(); p.resetAt = p.t = Date.now(); p.words={}; p.days={}; p.points=0; p.streak=0; p.lastDay=''; p.badges=[]; p.spent=0; p.owned=[]; p.hat=''; p.best={}; p.daily=null; p.boss=null; p.mw={}; p.stars=0; V.msg='Progress erased.'; save(); render(); }); },
   remove(){ twoStep('remove', () => { S.gone[S.cur] = Date.now(); S.profiles = S.profiles.filter(p => p.id!==S.cur); S.cur=null; V.view='profiles'; save(); render(); }); },
   mkbackup(){ document.getElementById('backup').value = JSON.stringify(S); },
   async copybackup(){
@@ -1694,6 +1959,7 @@ document.addEventListener('change', e => {
     f.t = Date.now();
     save();
   }
+  else if(k==='mfile' && t.files[0]){ t.files[0].text().then(txt => { document.getElementById('mean-import').value = txt; }); }
   else if(k==='file' && t.files[0]){ t.files[0].text().then(txt => { document.getElementById('backup').value = txt; }); }
 });
 
